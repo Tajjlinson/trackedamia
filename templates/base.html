@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trackademia - {% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2><i class="fas fa-graduation-cap"></i> Trackademia</h2>
+        </div>
+        
+        <nav class="sidebar-nav">
+            {% if session.user_type == 'lecturer' %}
+            <ul>
+                <li><a href="{{ url_for('lecturer_dashboard') }}" {% if request.endpoint == 'lecturer_dashboard' %}class="active"{% endif %}>
+                    <i class="fas fa-tachometer-alt"></i> Dashboard
+                </a></li>
+                <li><a href="{{ url_for('create_session') }}" {% if request.endpoint == 'create_session' %}class="active"{% endif %}>
+                    <i class="fas fa-plus-circle"></i> Create Session
+                </a></li>
+                <li><a href="{{ url_for('my_sessions') }}" {% if request.endpoint == 'my_sessions' %}class="active"{% endif %}>
+                    <i class="fas fa-calendar-alt"></i> My Sessions
+                </a></li>
+            </ul>
+            {% else %}
+            <ul>
+                <li><a href="{{ url_for('student_dashboard') }}" {% if request.endpoint == 'student_dashboard' %}class="active"{% endif %}>
+                    <i class="fas fa-tachometer-alt"></i> Dashboard
+                </a></li>
+                <li><a href="{{ url_for('mark_attendance') }}" {% if request.endpoint == 'mark_attendance' %}class="active"{% endif %}>
+                    <i class="fas fa-check-circle"></i> Mark Attendance
+                </a></li>
+                <li><a href="{{ url_for('attendance_analytics') }}" {% if request.endpoint == 'attendance_analytics' %}class="active"{% endif %}>
+                    <i class="fas fa-chart-line"></i> Analytics
+                </a></li>
+            </ul>
+            {% endif %}
+        </nav>
+        
+        <div class="user-info" style="padding: 20px; position: absolute; bottom: 20px; width: 100%;">
+            <p style="margin-bottom: 10px;"><strong>{{ session.name }}</strong></p>
+            <p style="margin-bottom: 15px; font-size: 0.9rem; opacity: 0.8;">
+                {% if session.user_type == 'lecturer' %}
+                <i class="fas fa-chalkboard-teacher"></i> Lecturer
+                {% else %}
+                <i class="fas fa-user-graduate"></i> Student
+                {% endif %}
+            </p>
+            <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm" style="width: 100%;">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </a>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        {% block content %}{% endblock %}
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

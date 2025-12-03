@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Student Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-header">
+    <h1>Welcome, {{ student.user.name }}</h1>
+    <p>Student ID: {{ student.student_id }}</p>
+</div>
+
+<div class="dashboard-cards">
+    <div class="card">
+        <div class="card-icon bg-primary">
+            <i class="fas fa-book"></i>
+        </div>
+        <h3>{{ student.courses|length }}</h3>
+        <p>Enrolled Courses</p>
+    </div>
+    
+    <div class="card">
+        <div class="card-icon bg-success">
+            <i class="fas fa-calendar-check"></i>
+        </div>
+        <h3>{{ active_sessions|length }}</h3>
+        <p>Active Sessions</p>
+    </div>
+</div>
+
+<div class="table-container">
+    <h2>My Courses</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Course Code</th>
+                <th>Course Name</th>
+                <th>Lecturer</th>
+                <th>Total Sessions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for course in student.courses %}
+            <tr>
+                <td>{{ course.code }}</td>
+                <td>{{ course.name }}</td>
+                <td>{{ course.lecturer.user.name }}</td>
+                <td>{{ course.sessions|length }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="table-container">
+    <h2>Active Sessions</h2>
+    {% if active_sessions %}
+    <table>
+        <thead>
+            <tr>
+                <th>Session Name</th>
+                <th>Course</th>
+                <th>Location</th>
+                <th>Time</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for session in active_sessions %}
+            <tr>
+                <td>{{ session.name }}</td>
+                <td>{{ session.course.name }}</td>
+                <td>{{ session.location }}</td>
+                <td>{{ session.start_time.strftime('%I:%M %p') }}</td>
+                <td>
+                    <a href="{{ url_for('mark_attendance') }}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-check"></i> Mark Attendance
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; padding: 20px; color: #64748b;">
+        No active sessions available at this time.
+    </p>
+    {% endif %}
+</div>
+{% endblock %}

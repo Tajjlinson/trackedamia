@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Students - {{ course.name }}{% endblock %}
+
+{% block content %}
+<div class="dashboard-header">
+    <h1><i class="fas fa-user-plus"></i> Manage Students - {{ course.name }}</h1>
+    <p>Course Code: {{ course.code }}</p>
+</div>
+
+<div class="table-container">
+    <h2>Current Students ({{ course.students|length }})</h2>
+    
+    {% if course.students %}
+    <table>
+        <thead>
+            <tr>
+                <th>Student ID</th>
+                <th>Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for student in course.students %}
+            <tr>
+                <td>{{ student.student_id }}</td>
+                <td>{{ student.user.name }}</td>
+                <td>
+                    <span style="color: #64748b;">Enrolled</span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; padding: 20px; color: #64748b;">
+        No students enrolled in this course yet.
+    </p>
+    {% endif %}
+</div>
+
+<div class="table-container">
+    <h2>Available Students to Add</h2>
+    
+    {% if available_students %}
+    <table>
+        <thead>
+            <tr>
+                <th>Student ID</th>
+                <th>Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for student in available_students %}
+            <tr>
+                <td>{{ student.student_id }}</td>
+                <td>{{ student.user.name }}</td>
+                <td>
+                    <button onclick="addStudentToCourse('{{ course.id }}', '{{ student.id }}')" class="btn btn-primary btn-sm">
+                        <i class="fas fa-plus"></i> Add to Course
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; padding: 20px; color: #64748b;">
+        All available students are already enrolled in this course.
+    </p>
+    {% endif %}
+</div>
+{% endblock %}
