@@ -299,7 +299,7 @@ def attendance_analytics():
     
     return render_template('attendance_analytics.html', analytics=analytics)
 
-    @app.route('/admin/dashboard')
+@app.route('/admin/dashboard')
 def admin_dashboard():
     if flask_session.get('user_type') != 'admin':
         return redirect(url_for('index'))
