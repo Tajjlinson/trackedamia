@@ -6,6 +6,9 @@ import secrets
 import ipaddress
 import csv
 import io
+from datetime import datetime, timedelta
+from io import BytesIO
+import csv
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
@@ -632,6 +635,177 @@ def admin_reports():
                          total_attendance=total_attendance,
                          attendance_by_course=attendance_by_course)
 
+# Add these API endpoints that the template expects
+@app.route('/api/reports/top-students')
+def api_top_students():
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    # Get pagination parameters
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 10, type=int)
+    offset = (page - 1) * limit
+    
+    # Get all students with their attendance statistics
+    students = db.session.query(Student).all()
+    student_data = []
+    
+    for student in students:
+        # Calculate attendance statistics
+        total_sessions = 0
+        attended_sessions = 0
+        
+        for course in student.courses:
+            total_sessions += len([s for s in course.sessions if s.status == 'past'])
+            attended_sessions += db.session.query(Attendance).filter_by(
+                student_id=student.id,
+                status='present'
+            ).join(SessionModel).filter(SessionModel.course_id == course.id).count()
+        
+        attendance_rate = 0
+        if total_sessions > 0:
+            attendance_rate = round((attended_sessions / total_sessions) * 100, 1)
+        
+        student_data.append({
+            'id': student.id,
+            'student_id': student.student_id,
+            'name': student.user.name,
+            'courses_count': len(student.courses),
+            'total_sessions': total_sessions,
+            'attended_sessions': attended_sessions,
+            'attendance_rate': attendance_rate,
+            'is_active': student.user.is_active
+        })
+    
+    # Sort by attendance rate (highest first)
+    student_data.sort(key=lambda x: x['attendance_rate'], reverse=True)
+    
+    # Apply pagination
+    paginated_data = student_data[offset:offset + limit]
+    
+    return jsonify({
+        'success': True,
+        'students': paginated_data,
+        'total': len(student_data),
+        'page': page,
+        'total_pages': (len(student_data) + limit - 1) // limit
+    })
+
+@app.route('/api/reports/export-all')
+def export_all_reports():
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    # Create CSV data
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Write header
+    writer.writerow(['Course Code', 'Course Name', 'Lecturer', 'Enrolled', 'Sessions', 'Attendance', 'Attendance Rate'])
+    
+    # Write data
+    courses = db.session.query(Course).all()
+    for course in courses:
+        course_sessions = len(course.sessions)
+        course_attendance = 0
+        for session in course.sessions:
+            course_attendance += len(session.attendance_records)
+        
+        attendance_rate = 0
+        if course_sessions > 0 and len(course.students) > 0:
+            attendance_rate = round((course_attendance / (course_sessions * len(course.students))) * 100, 1)
+        
+        writer.writerow([
+            course.code,
+            course.name,
+            course.lecturer.user.name if course.lecturer else 'N/A',
+            len(course.students),
+            course_sessions,
+            course_attendance,
+            f"{attendance_rate}%"
+        ])
+    
+    # Return CSV file
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode('utf-8')),
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name='trackademia_reports.csv'
+    )
+
+@app.route('/admin/reports/export')
+def export_reports():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    # Create CSV data
+    output = BytesIO()
+    writer = csv.writer(output, delimiter=',')
+    
+    # Write header
+    writer.writerow(['Course Name', 'Sessions', 'Attendance Records', 'Average Attendance'])
+    
+    # Get all courses
+    courses = db.session.query(Course).all()
+    
+    # Write data for each course
+    for course in courses:
+        course_sessions = len(course.sessions)
+        course_attendance = 0
+        
+        for session in course.sessions:
+            course_attendance += len(session.attendance_records)
+        
+        # Calculate average attendance per session
+        avg_attendance = 0
+        if course_sessions > 0:
+            avg_attendance = course_attendance / course_sessions
+        
+        writer.writerow([
+            course.name,
+            course_sessions,
+            course_attendance,
+            f"{avg_attendance:.1f}"
+        ])
+    
+    # Add summary row
+    writer.writerow([])  # Empty row
+    writer.writerow(['SUMMARY', '', '', ''])
+    total_sessions = db.session.query(session).count()
+    total_attendance = db.session.query(Attendance).count()
+    writer.writerow(['Total Sessions', total_sessions, '', ''])
+    writer.writerow(['Total Attendance Records', total_attendance, '', ''])
+    
+    # Prepare response
+    output.seek(0)
+    
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name='trackademia_reports.csv',
+        mimetype='text/csv'
+    )
+
+@app.route('/api/reports/custom')
+def custom_report():
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    # Get parameters
+    report_type = request.args.get('type', 'attendance')
+    format_type = request.args.get('format', 'csv')
+    
+    # For now, just return the full export
+    if format_type == 'csv':
+        return export_all_reports()
+    else:
+        # For PDF or other formats, return a placeholder
+        flash(f'Custom {report_type} report in {format_type.upper()} format requested', 'info')
+        return redirect(url_for('admin_reports'))
+
+
 # Lecturer Routes
 @app.route('/lecturer/dashboard')
 def lecturer_dashboard():
@@ -918,16 +1092,26 @@ def student_dashboard():
         flash('Please login as a student', 'error')
         return redirect(url_for('login'))
     
-    # Get active sessions for student's courses
-    active_sessions_list = []
+    # Get upcoming sessions for student's courses
+    upcoming_sessions = []
     for course in student.courses:
         for session_obj in course.sessions:
-            if session_obj.status == 'active':
-                active_sessions_list.append(session_obj)
+            if session_obj.status == 'upcoming':
+                upcoming_sessions.append(session_obj)
+    
+    # Get today's active sessions for quick access
+    today = datetime.now().date()
+    today_active_sessions = []
+    for course in student.courses:
+        for session_obj in course.sessions:
+            if session_obj.status == 'active' and session_obj.date == today:
+                today_active_sessions.append(session_obj)
     
     return render_template('student_dashboard.html', 
                          student=student,
-                         active_sessions=active_sessions_list)
+                         upcoming_sessions=upcoming_sessions,
+                         today_active_sessions=today_active_sessions)
+
 
 @app.route('/student/mark-attendance')
 def mark_attendance():
