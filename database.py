@@ -206,6 +206,15 @@ def init_db(app):
 
 def create_demo_data():
     """Create demo users and data - Working version"""
+    # Create admin user
+    admin_user = User()
+    admin_user.username = 'admin'
+    admin_user.name = 'System Admin'
+    admin_user.user_type = 'admin'
+    admin_user.set_password('admin123')
+    db.session.add(admin_user)
+    db.session.commit()
+
     print("Creating demo data...")
     
     try:
