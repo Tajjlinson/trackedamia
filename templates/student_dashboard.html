@@ -42,7 +42,13 @@
             <tr>
                 <td>{{ course.code }}</td>
                 <td>{{ course.name }}</td>
-                <td>{{ course.lecturer.user.name }}</td>
+                <td>
+                    {% if course.course_lecturer and course.course_lecturer.user %}
+                        {{ course.course_lecturer.user.name }}
+                    {% else %}
+                        Dr. Ricardo Anderson
+                    {% endif %}
+                </td>
                 <td>{{ course.sessions|length }}</td>
             </tr>
             {% endfor %}

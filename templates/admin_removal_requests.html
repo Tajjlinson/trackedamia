@@ -1,0 +1,609 @@
+{% extends "base.html" %}
+{% block title %}Admin - Removal Requests{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Header -->
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800">
+            <i class="fas fa-user-minus mr-2"></i>Student Removal Requests
+        </h1>
+    </div>
+
+    <!-- Pending Requests Card -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">
+                <i class="fas fa-clock mr-2"></i>Pending Requests ({{ pending_requests|length }})
+            </h6>
+        </div>
+        <div class="card-body">
+            {% if pending_requests %}
+            <div class="table-responsive">
+                <table class="table table-bordered" id="pendingRequestsTable" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Course</th>
+                            <th>Student</th>
+                            <th>Lecturer</th>
+                            <th>Reason</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for request in pending_requests %}
+                        <tr>
+                            <td>{{ request.created_at.strftime('%Y-%m-%d') }}</td>
+                            <td>
+                                <strong>{{ request.course.code }}</strong><br>
+                                <small class="text-muted">{{ request.course.name }}</small>
+                            </td>
+                            <td>
+                                {{ request.student.user.name }}<br>
+                                <small class="text-muted">{{ request.student.student_id }}</small>
+                            </td>
+                            <td>{{ request.lecturer.user.name }}</td>
+                            <td>
+                                <div class="reason-text" style="max-width: 200px;">
+                                    {{ request.reason[:100] }}
+                                    {% if request.reason|length > 100 %}
+                                    ... <a href="#" class="text-primary" onclick="showFullReason('{{ request.id }}')">Read more</a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="btn-group-vertical">
+                                    <button onclick="approveRequest('{{ request.id }}')" 
+                                            class="btn btn-success btn-sm mb-1">
+                                        <i class="fas fa-check"></i> Approve
+                                    </button>
+                                    <button onclick="rejectRequest('{{ request.id }}')" 
+                                            class="btn btn-danger btn-sm mb-1">
+                                        <i class="fas fa-times"></i> Reject
+                                    </button>
+                                    <button onclick="showRequestDetails('{{ request.id }}')" 
+                                            class="btn btn-info btn-sm">
+                                        <i class="fas fa-eye"></i> Details
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-4">
+                <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                <h5 class="text-muted">No pending removal requests</h5>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Recently Processed Card -->
+    <div class="card shadow">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">
+                <i class="fas fa-history mr-2"></i>Recently Processed
+            </h6>
+        </div>
+        <div class="card-body">
+            {% if recent_requests %}
+            <div class="table-responsive">
+                <table class="table table-bordered" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Course</th>
+                            <th>Student</th>
+                            <th>Status</th>
+                            <th>Reviewed By</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for request in recent_requests %}
+                        <tr class="{% if request.status == 'approved' %}table-success{% else %}table-danger{% endif %}">
+                            <td>{{ request.reviewed_at.strftime('%Y-%m-%d') if request.reviewed_at else 'N/A' }}</td>
+                            <td>{{ request.course.code }}</td>
+                            <td>{{ request.student.user.name }}</td>
+                            <td>
+                                <span class="badge badge-{% if request.status == 'approved' %}success{% else %}danger{% endif %}">
+                                    {% if request.status == 'approved' %}
+                                    <i class="fas fa-check-circle"></i> Approved
+                                    {% else %}
+                                    <i class="fas fa-times-circle"></i> Rejected
+                                    {% endif %}
+                                </span>
+                            </td>
+                            <td>{{ request.admin_reviewer.user.name if request.admin_reviewer else 'N/A' }}</td>
+                            <td>
+                                {% if request.review_notes %}
+                                {{ request.review_notes[:50] }}{% if request.review_notes|length > 50 %}...{% endif %}
+                                {% else %}
+                                <span class="text-muted">No notes</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-4">
+                <i class="fas fa-history fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">No processed requests yet</h5>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Details Modal -->
+<div class="modal fade" id="requestModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Removal Request Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="requestDetails">
+                    <!-- Details will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div id="requestActionButtons" style="display: none;">
+                    <!-- Action buttons will be loaded here -->
+                </div>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reject Modal -->
+<div class="modal fade" id="rejectModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Reject Removal Request</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Please provide a reason for rejecting this request:</p>
+                <textarea id="rejectReason" class="form-control" rows="4" placeholder="Enter reason for rejection..."></textarea>
+                <input type="hidden" id="rejectRequestId" value="">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="rejectRequest()">Submit Rejection</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Request Details Modal -->
+<div class="modal fade" id="requestDetailsModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-file-alt mr-2"></i>Removal Request Details</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="requestDetailsContent">
+                <!-- Dynamic content will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                    <i class="fas fa-times mr-1"></i>Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Approval Modal -->
+<div class="modal fade" id="approvalModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-success"><i class="fas fa-check-circle mr-2"></i>Approve Removal Request</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p id="approvalText" class="mb-3"></p>
+                <div class="form-group">
+                    <label for="approvalNotes"><i class="fas fa-sticky-note mr-1"></i>Notes (Optional)</label>
+                    <textarea id="approvalNotes" rows="3" class="form-control" 
+                              placeholder="Add any notes or comments..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </button>
+                <button onclick="confirmApprove()" class="btn btn-success">
+                    <i class="fas fa-check mr-1"></i>Confirm Approval
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Rejection Modal -->
+<div class="modal fade" id="rejectionModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger"><i class="fas fa-times-circle mr-2"></i>Reject Removal Request</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p id="rejectionText" class="mb-3"></p>
+                <div class="form-group">
+                    <label for="rejectionNotes" class="required">
+                        <i class="fas fa-sticky-note mr-1"></i>Reason for Rejection
+                    </label>
+                    <textarea id="rejectionNotes" rows="3" class="form-control" 
+                              placeholder="Explain why this request is being rejected..." required></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </button>
+                <button onclick="confirmReject()" class="btn btn-danger">
+                    <i class="fas fa-times mr-1"></i>Confirm Rejection
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Full Reason Modal -->
+<div class="modal fade" id="fullReasonModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-file-alt mr-2"></i>Full Reason</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="fullReasonContent">
+                <!-- Full reason will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                    <i class="fas fa-times mr-1"></i>Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentRequestId = null;
+
+// Simple debug logging
+function log(message, data = null) {
+    console.log(`[Removal Requests] ${message}`, data || '');
+}
+
+// Show a simple alert (you can replace with toast later)
+function showAlert(message, type = 'info') {
+    if (type === 'error') {
+        alert('Error: ' + message);
+    } else if (type === 'success') {
+        alert('Success: ' + message);
+    } else {
+        alert(message);
+    }
+}
+
+// Handle Approve button click
+function handleApprove(requestId) {
+    log('Approve clicked for request:', requestId);
+    
+    if (confirm('Are you sure you want to approve this removal request? This will remove the student from the course.')) {
+        approveRequest(requestId);
+    }
+}
+
+// Handle Reject button click
+function handleReject(requestId) {
+    log('Reject clicked for request:', requestId);
+    
+    const reason = prompt('Please provide a reason for rejecting this request:');
+    if (reason === null) {
+        return; // User cancelled
+    }
+    
+    if (!reason.trim()) {
+        showAlert('Please provide a reason for rejection.', 'error');
+        return;
+    }
+    
+    rejectRequest(requestId, reason);
+}
+
+// Handle Details button click
+function handleDetails(requestId) {
+    log('Details clicked for request:', requestId);
+    showDetailsModal(requestId);
+}
+
+// Main approve function
+async function approveRequest(requestId) {
+    log('Processing approval for:', requestId);
+    
+    try {
+        const response = await fetch(`/api/admin/removal-request/approve/${requestId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                notes: 'Approved by administrator'
+            })
+        });
+        
+        const data = await response.json();
+        log('Approval response:', data);
+        
+        if (data.success) {
+            showAlert('Request approved successfully! The student has been removed from the course.', 'success');
+            // Reload page after 1 second
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        } else {
+            showAlert(data.message || 'Failed to approve request', 'error');
+        }
+    } catch (error) {
+        log('Error approving request:', error);
+        showAlert('An error occurred: ' + error.message, 'error');
+    }
+}
+
+// Main reject function
+async function rejectRequest(requestId, reason) {
+    log('Processing rejection for:', requestId);
+    
+    try {
+        const response = await fetch(`/api/admin/removal-request/reject/${requestId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                notes: reason
+            })
+        });
+        
+        const data = await response.json();
+        log('Rejection response:', data);
+        
+        if (data.success) {
+            showAlert('Request rejected successfully! The student remains in the course.', 'success');
+            // Reload page after 1 second
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        } else {
+            showAlert(data.message || 'Failed to reject request', 'error');
+        }
+    } catch (error) {
+        log('Error rejecting request:', error);
+        showAlert('An error occurred: ' + error.message, 'error');
+    }
+}
+
+// Show details in modal
+async function showDetailsModal(requestId) {
+    log('Loading details for:', requestId);
+    
+    try {
+        const response = await fetch(`/api/removal-request/details/${requestId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const request = data.request;
+            const modalContent = `
+                <div class="modal-header">
+                    <h5 class="modal-title">Removal Request Details</h5>
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Request Information</h6>
+                            <p><strong>Date:</strong> ${new Date(request.created_at).toLocaleString()}</p>
+                            <p><strong>Status:</strong> 
+                                <span class="badge badge-${request.status === 'pending' ? 'warning' : request.status === 'approved' ? 'success' : 'danger'}">
+                                    ${request.status}
+                                </span>
+                            </p>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Student Information</h6>
+                            <p><strong>Name:</strong> ${request.student.user.name}</p>
+                            <p><strong>Student ID:</strong> ${request.student.student_id}</p>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <h6>Course Information</h6>
+                            <p><strong>Course:</strong> ${request.course.code} - ${request.course.name}</p>
+                            <p><strong>Lecturer:</strong> ${request.lecturer.user.name}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Removal Reason</h6>
+                            <div class="border p-2 bg-light">
+                                ${request.reason || 'No reason provided'}
+                            </div>
+                        </div>
+                    </div>
+                    ${request.review_notes ? `
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6>Admin Notes</h6>
+                            <div class="border p-2 bg-light">
+                                ${request.review_notes}
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+                </div>
+                <div class="modal-footer">
+                    ${request.status === 'pending' ? `
+                    <button type="button" class="btn btn-success" onclick="handleApprove(${requestId})" data-dismiss="modal">
+                        Approve
+                    </button>
+                    <button type="button" class="btn btn-danger" onclick="handleReject(${requestId})" data-dismiss="modal">
+                        Reject
+                    </button>
+                    ` : ''}
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
+            `;
+            
+            // Create or update modal
+            let modal = document.getElementById('simpleDetailsModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.className = 'modal fade';
+                modal.id = 'simpleDetailsModal';
+                modal.innerHTML = `
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            ${modalContent}
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            } else {
+                modal.querySelector('.modal-content').innerHTML = modalContent;
+            }
+            
+            // Show modal
+            $(modal).modal('show');
+        } else {
+            showAlert('Failed to load details: ' + data.message, 'error');
+        }
+    } catch (error) {
+        log('Error loading details:', error);
+        showAlert('Failed to load details: ' + error.message, 'error');
+    }
+}
+
+// Add full reason function
+function showFullReason(requestId) {
+    const requestRow = document.querySelector(`tr:has(button[onclick*="handleDetails(${requestId})"])`);
+    if (requestRow) {
+        const reasonCell = requestRow.querySelector('.reason-text');
+        const fullText = reasonCell.textContent;
+        showAlert(fullText, 'info');
+    }
+}
+
+// Initialize on page load
+$(document).ready(function() {
+    log('Page loaded, removal requests ready');
+    
+    // Initialize DataTable
+    if ($.fn.DataTable) {
+        $('#pendingRequestsTable').DataTable({
+            "pageLength": 10,
+            "ordering": true,
+            "order": [[0, 'desc']]
+        });
+    }
+});
+</script>
+
+<style>
+.required::after {
+    content: " *";
+    color: #dc3545;
+}
+
+.reason-text {
+    max-width: 200px;
+    word-wrap: break-word;
+}
+
+.card {
+    margin-bottom: 1.5rem;
+    border: 1px solid #e3e6f0;
+    border-radius: 0.35rem;
+}
+
+.card-header {
+    background-color: #f8f9fc;
+    border-bottom: 1px solid #e3e6f0;
+}
+
+.modal-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.btn-group-vertical .btn {
+    margin-bottom: 0.25rem;
+    min-width: 100px;
+}
+
+.btn-group-vertical .btn:last-child {
+    margin-bottom: 0;
+}
+
+.table th {
+    background-color: #f8f9fa;
+    border-top: none;
+}
+
+.badge {
+    padding: 0.4em 0.65em;
+    font-size: 0.75em;
+    font-weight: 600;
+}
+
+.text-muted {
+    color: #6c757d !important;
+}
+
+/* Toast styles */
+.toast {
+    min-width: 300px;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* Responsive table */
+@media (max-width: 768px) {
+    .btn-group-vertical {
+        flex-direction: row !important;
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .btn-group-vertical .btn {
+        margin-bottom: 0;
+        min-width: auto;
+    }
+    
+    .reason-text {
+        max-width: 150px;
+    }
+}
+</style>
+{% endblock %}

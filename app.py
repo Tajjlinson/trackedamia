@@ -1,8 +1,11 @@
-from flask import Flask, render_template, request, jsonify, session as flask_session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session as flask_session, redirect, url_for, flash, send_file
 from flask_cors import CORS
 from datetime import datetime, timedelta
-from database import db, User, Lecturer, Student, Course, Session as SessionModel, Attendance, init_db
+from database import db, User, Admin, Lecturer, Student, Course, Session as SessionModel, Attendance, RemovalRequest
 import secrets
+import ipaddress
+import csv
+import io
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
@@ -15,9 +18,6 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Initialize the database with the app
 db.init_app(app)
 
-# Initialize database (drops and recreates for development)
-init_db(app)
-
 # Authentication middleware
 @app.before_request
 def require_login():
@@ -25,11 +25,31 @@ def require_login():
     if request.endpoint not in allowed_routes and 'user_id' not in flask_session:
         return redirect(url_for('login'))
 
+# Context processor for pending requests count
+@app.context_processor
+def inject_pending_requests():
+    """Inject pending requests count into all templates"""
+    if flask_session.get('user_type') == 'admin':
+        pending_count = db.session.query(RemovalRequest).filter_by(status='pending').count()
+        return dict(pending_requests_count=pending_count)
+    return dict(pending_requests_count=0)
+
+# Check admin access
+def require_admin():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('index'))
+
 # Routes
 @app.route('/')
 def index():
     user_type = flask_session.get('user_type')
-    if user_type == 'lecturer':
+    if not user_type:
+        return redirect(url_for('login'))
+    
+    if user_type == 'admin':
+        return redirect(url_for('admin_dashboard'))
+    elif user_type == 'lecturer':
         return redirect(url_for('lecturer_dashboard'))
     else:
         return redirect(url_for('student_dashboard'))
@@ -40,19 +60,25 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         
-        # Simplified authentication
-        user = User.query.filter_by(username=username).first()
+        user = db.session.query(User).filter_by(username=username).first()
         
         if user and user.check_password(password):
+            if not user.is_active:
+                flash('Your account has been deactivated. Please contact administrator.', 'error')
+                return render_template('login.html', error='Account deactivated')
+            
             flask_session['user_id'] = user.id
             flask_session['user_type'] = user.user_type
             flask_session['name'] = user.name
             
-            if user.user_type == 'lecturer':
+            if user.user_type == 'admin':
+                return redirect(url_for('admin_dashboard'))
+            elif user.user_type == 'lecturer':
                 return redirect(url_for('lecturer_dashboard'))
             else:
                 return redirect(url_for('student_dashboard'))
         
+        flash('Invalid credentials', 'error')
         return render_template('login.html', error='Invalid credentials')
     
     return render_template('login.html')
@@ -60,29 +86,570 @@ def login():
 @app.route('/logout')
 def logout():
     flask_session.clear()
+    flash('You have been logged out successfully.', 'info')
     return redirect(url_for('login'))
 
+# Admin Routes
+@app.route('/admin/dashboard')
+def admin_dashboard():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    # Get statistics
+    total_users = db.session.query(User).count()
+    total_students = db.session.query(Student).count()
+    total_lecturers = db.session.query(Lecturer).count()
+    total_courses = db.session.query(Course).count()
+    total_sessions = db.session.query(SessionModel).count()
+    
+    # Get pending removal requests
+    pending_requests = db.session.query(RemovalRequest).filter_by(status='pending').count()
+    
+    # Get recent activities
+    recent_users = db.session.query(User).order_by(User.created_at.desc()).limit(5).all()
+    recent_courses = db.session.query(Course).order_by(Course.created_at.desc()).limit(5).all()
+    
+    return render_template('admin_dashboard.html',
+                         total_users=total_users,
+                         total_students=total_students,
+                         total_lecturers=total_lecturers,
+                         total_courses=total_courses,
+                         total_sessions=total_sessions,
+                         pending_requests=pending_requests,
+                         recent_users=recent_users,
+                         recent_courses=recent_courses)
+
+@app.route('/admin/users')
+def admin_users():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    users = db.session.query(User).order_by(User.user_type, User.name).all()
+    return render_template('admin_users.html', users=users)
+
+@app.route('/admin/users/create', methods=['GET', 'POST'])
+def admin_create_user():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        name = request.form.get('name')
+        email = request.form.get('email')
+        user_type = request.form.get('user_type')
+        password = request.form.get('password')
+        
+        # Check if username already exists
+        existing_user = db.session.query(User).filter_by(username=username).first()
+        if existing_user:
+            flash('Username already exists', 'error')
+            return render_template('admin_create_user.html')
+        
+        # Create user
+        user = User(
+            username=username,
+            name=name,
+            email=email,
+            user_type=user_type,
+            is_active=True
+        )
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        
+        # Create profile based on user type
+        if user_type == 'student':
+            student = Student(
+                user_id=user.id,
+                student_id=request.form.get('student_id'),
+                enrollment_year=request.form.get('enrollment_year'),
+                major=request.form.get('major')
+            )
+            db.session.add(student)
+        elif user_type == 'lecturer':
+            lecturer = Lecturer(
+                user_id=user.id,
+                department=request.form.get('department'),
+                employee_id=request.form.get('employee_id'),
+                office_location=request.form.get('office_location'),
+                office_hours=request.form.get('office_hours')
+            )
+            db.session.add(lecturer)
+        elif user_type == 'admin':
+            admin = Admin(
+                user_id=user.id,
+                role=request.form.get('role', 'administrator')
+            )
+            db.session.add(admin)
+        
+        db.session.commit()
+        flash('User created successfully', 'success')
+        return redirect(url_for('admin_users'))
+    
+    return render_template('admin_create_user.html')
+
+@app.route('/admin/users/<int:user_id>/edit', methods=['GET', 'POST'])
+def admin_edit_user(user_id):
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    user = db.session.get(User, user_id)
+    if not user:
+        flash('User not found', 'error')
+        return redirect(url_for('admin_users'))
+    
+    if request.method == 'POST':
+        user.name = request.form.get('name')
+        user.email = request.form.get('email')
+        user.is_active = request.form.get('is_active') == 'true'
+        
+        # Update profile based on user type
+        if user.user_type == 'student':
+            student = db.session.query(Student).filter_by(user_id=user.id).first()
+            if student:
+                student.student_id = request.form.get('student_id')
+                student.enrollment_year = request.form.get('enrollment_year')
+                student.major = request.form.get('major')
+        elif user.user_type == 'lecturer':
+            lecturer = db.session.query(Lecturer).filter_by(user_id=user.id).first()
+            if lecturer:
+                lecturer.department = request.form.get('department')
+                lecturer.employee_id = request.form.get('employee_id')
+                lecturer.office_location = request.form.get('office_location')
+                lecturer.office_hours = request.form.get('office_hours')
+        
+        db.session.commit()
+        flash('User updated successfully', 'success')
+        return redirect(url_for('admin_users'))
+    
+    # Get profile data
+    profile = None
+    if user.user_type == 'student':
+        profile = db.session.query(Student).filter_by(user_id=user.id).first()
+    elif user.user_type == 'lecturer':
+        profile = db.session.query(Lecturer).filter_by(user_id=user.id).first()
+    elif user.user_type == 'admin':
+        profile = db.session.query(Admin).filter_by(user_id=user.id).first()
+    
+    return render_template('admin_edit_user.html', user=user, profile=profile)
+
+@app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
+def admin_delete_user(user_id):
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    user = db.session.get(User, user_id)
+    if user:
+        # Delete profile based on user type
+        if user.user_type == 'student':
+            student = db.session.query(Student).filter_by(user_id=user.id).first()
+            if student:
+                db.session.delete(student)
+        elif user.user_type == 'lecturer':
+            lecturer = db.session.query(Lecturer).filter_by(user_id=user.id).first()
+            if lecturer:
+                db.session.delete(lecturer)
+        elif user.user_type == 'admin':
+            admin = db.session.query(Admin).filter_by(user_id=user.id).first()
+            if admin:
+                db.session.delete(admin)
+        
+        db.session.delete(user)
+        db.session.commit()
+        flash('User deleted successfully', 'success')
+    
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/users/import', methods=['GET', 'POST'])
+def admin_import_users():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        if 'csv_file' not in request.files:
+            flash('No file selected', 'error')
+            return redirect(request.url)
+        
+        file = request.files['csv_file']
+        if file.filename == '':
+                    flash('No file selected', 'error')
+        return redirect(request.url)
+        
+        if file and file.filename.endswith('.csv'):
+            try:
+                stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+                csv_input = csv.DictReader(stream)
+                
+                imported_count = 0
+                for row in csv_input:
+                    # Create user
+                    user = User(
+                        username=row.get('username'),
+                        name=row.get('name'),
+                        email=row.get('email'),
+                        user_type=row.get('user_type'),
+                        is_active=True
+                    )
+                    user.set_password(row.get('password', 'password123'))
+                    db.session.add(user)
+                    db.session.commit()
+                    
+                    # Create profile
+                    if user.user_type == 'student':
+                        student = Student(
+                            user_id=user.id,
+                            student_id=row.get('student_id'),
+                            enrollment_year=row.get('enrollment_year'),
+                            major=row.get('major')
+                        )
+                        db.session.add(student)
+                    elif user.user_type == 'lecturer':
+                        lecturer = Lecturer(
+                            user_id=user.id,
+                            department=row.get('department'),
+                            employee_id=row.get('employee_id'),
+                            office_location=row.get('office_location'),
+                            office_hours=row.get('office_hours')
+                        )
+                        db.session.add(lecturer)
+                    
+                    imported_count += 1
+                
+                db.session.commit()
+                flash(f'Successfully imported {imported_count} users', 'success')
+                return redirect(url_for('admin_users'))
+                
+            except Exception as e:
+                flash(f'Error importing CSV: {str(e)}', 'error')
+                return redirect(request.url)
+    
+    return render_template('admin_import_users.html')
+
+@app.route('/admin/courses')
+def admin_courses():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    courses = db.session.query(Course).order_by(Course.code).all()
+    return render_template('admin_courses.html', courses=courses)
+
+@app.route('/admin/courses/create', methods=['GET', 'POST'])
+def admin_create_course():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    lecturers = db.session.query(Lecturer).all()
+    
+    if request.method == 'POST':
+        course = Course(
+            name=request.form.get('name'),
+            code=request.form.get('code'),
+            description=request.form.get('description'),
+            credits=int(request.form.get('credits', 3)),
+            semester=request.form.get('semester'),
+            max_capacity=int(request.form.get('max_capacity', 30)),
+            lecturer_id=int(request.form.get('lecturer_id')),
+            is_active=request.form.get('is_active') == 'true'
+        )
+        
+        db.session.add(course)
+        db.session.commit()
+        flash('Course created successfully', 'success')
+        return redirect(url_for('admin_courses'))
+    
+    return render_template('admin_create_course.html', lecturers=lecturers)
+
+@app.route('/admin/courses/<int:course_id>/edit', methods=['GET', 'POST'])
+def admin_edit_course(course_id):
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    course = db.session.get(Course, course_id)
+    lecturers = db.session.query(Lecturer).all()
+    
+    if not course:
+        flash('Course not found', 'error')
+        return redirect(url_for('admin_courses'))
+    
+    if request.method == 'POST':
+        course.name = request.form.get('name')
+        course.code = request.form.get('code')
+        course.description = request.form.get('description')
+        course.credits = int(request.form.get('credits', 3))
+        course.semester = request.form.get('semester')
+        course.max_capacity = int(request.form.get('max_capacity', 30))
+        course.lecturer_id = int(request.form.get('lecturer_id'))
+        course.is_active = request.form.get('is_active') == 'true'
+        
+        db.session.commit()
+        flash('Course updated successfully', 'success')
+        return redirect(url_for('admin_courses'))
+    
+    return render_template('admin_edit_course.html', course=course, lecturers=lecturers)
+
+@app.route('/admin/courses/<int:course_id>/enrollments')
+def admin_course_enrollments(course_id):
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    course = db.session.get(Course, course_id)
+    if not course:
+        flash('Course not found', 'error')
+        return redirect(url_for('admin_courses'))
+    
+    all_students = db.session.query(Student).all()
+    enrolled_students = course.students
+    available_students = [s for s in all_students if s not in enrolled_students]
+    
+    return render_template('admin_course_enrollments.html',
+                         course=course,
+                         enrolled_students=enrolled_students,
+                         available_students=available_students)
+
+@app.route('/admin/courses/enroll', methods=['POST'])
+def admin_enroll_student():
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    course_id = request.json.get('course_id')
+    student_id = request.json.get('student_id')
+    
+    course = db.session.get(Course, course_id)
+    student = db.session.get(Student, student_id)
+    
+    if course and student:
+        if len(course.students) >= course.max_capacity:
+            return jsonify({'success': False, 'message': 'Course has reached maximum capacity'})
+        
+        if student not in course.students:
+            course.students.append(student)
+            db.session.commit()
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'message': 'Student already enrolled in course'})
+    
+    return jsonify({'success': False, 'message': 'Invalid course or student'}), 400
+
+@app.route('/admin/courses/unenroll', methods=['POST'])
+def admin_unenroll_student():
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    course_id = request.json.get('course_id')
+    student_id = request.json.get('student_id')
+    
+    course = db.session.get(Course, course_id)
+    student = db.session.get(Student, student_id)
+    
+    if course and student:
+        if student in course.students:
+            course.students.remove(student)
+            db.session.commit()
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'message': 'Student not enrolled in course'})
+    
+    return jsonify({'success': False, 'message': 'Invalid course or student'}), 400
+
+@app.route('/admin/removal-requests')
+def admin_removal_requests():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    # Get all requests
+    all_requests = db.session.query(RemovalRequest).order_by(RemovalRequest.created_at.desc()).all()
+    
+    # Separate pending and processed requests
+    pending_requests = [r for r in all_requests if r.status == 'pending']
+    recent_requests = [r for r in all_requests if r.status != 'pending'][:10]  # Last 10 processed
+    
+    return render_template('admin_removal_requests.html', 
+                         pending_requests=pending_requests,
+                         recent_requests=recent_requests)
+
+# API endpoints for removal requests
+@app.route('/api/removal-request/details/<int:request_id>')
+def api_removal_request_details(request_id):
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    removal_request = db.session.get(RemovalRequest, request_id)
+    if not removal_request:
+        return jsonify({'success': False, 'message': 'Request not found'}), 404
+    
+    # Prepare response data
+    data = {
+        'success': True,
+        'request': {
+            'id': removal_request.id,
+            'created_at': removal_request.created_at.isoformat(),
+            'status': removal_request.status,
+            'reason': removal_request.reason,
+            'review_notes': removal_request.review_notes,
+            'course': {
+                'id': removal_request.course.id,
+                'code': removal_request.course.code,
+                'name': removal_request.course.name
+            },
+            'student': {
+                'id': removal_request.student.id,
+                'user': {
+                    'name': removal_request.student.user.name,
+                    'username': removal_request.student.user.username
+                },
+                'student_id': removal_request.student.student_id
+            },
+            'lecturer': {
+                'id': removal_request.lecturer.id,
+                'user': {
+                    'name': removal_request.lecturer.user.name
+                }
+            },
+            'admin_reviewer': {
+                'user': {
+                    'name': removal_request.admin_reviewer.user.name if removal_request.admin_reviewer else None
+                }
+            } if removal_request.admin_reviewer else None
+        }
+    }
+    
+    return jsonify(data)
+
+@app.route('/api/admin/removal-request/approve/<int:request_id>', methods=['POST'])
+def api_approve_removal_request(request_id):
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    removal_request = db.session.get(RemovalRequest, request_id)
+    if not removal_request:
+        return jsonify({'success': False, 'message': 'Request not found'}), 404
+    
+    data = request.get_json()
+    notes = data.get('notes', '')
+    
+    # Update request status
+    removal_request.status = 'approved'
+    removal_request.reviewed_by = flask_session.get('user_id')
+    removal_request.reviewed_at = datetime.utcnow()
+    removal_request.review_notes = notes
+    
+    # Remove student from course
+    course = removal_request.course
+    student = removal_request.student
+    if student in course.students:
+        course.students.remove(student)
+    
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Request approved successfully'})
+
+@app.route('/api/admin/removal-request/reject/<int:request_id>', methods=['POST'])
+def api_reject_removal_request(request_id):
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    removal_request = db.session.get(RemovalRequest, request_id)
+    if not removal_request:
+        return jsonify({'success': False, 'message': 'Request not found'}), 404
+    
+    data = request.get_json()
+    notes = data.get('notes', '')
+    
+    if not notes.strip():
+        return jsonify({'success': False, 'message': 'Please provide a reason for rejection'}), 400
+    
+    # Update request status
+    removal_request.status = 'rejected'
+    removal_request.reviewed_by = flask_session.get('user_id')
+    removal_request.reviewed_at = datetime.utcnow()
+    removal_request.review_notes = notes
+    
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Request rejected successfully'})
+
+@app.route('/admin/removal-requests/<int:request_id>/review', methods=['POST'])
+def admin_review_removal_request(request_id):
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    removal_request = db.session.get(RemovalRequest, request_id)
+    if not removal_request:
+        return jsonify({'success': False, 'message': 'Request not found'}), 404
+    
+    action = request.json.get('action')  # 'approve' or 'reject'
+    review_notes = request.json.get('review_notes', '')
+    
+    removal_request.status = 'approved' if action == 'approve' else 'rejected'
+    removal_request.reviewed_by = flask_session.get('user_id')
+    removal_request.reviewed_at = datetime.utcnow()
+    removal_request.review_notes = review_notes
+    
+    # If approved, remove student from course
+    if action == 'approve':
+        course = removal_request.course
+        student = removal_request.student
+        if student in course.students:
+            course.students.remove(student)
+    
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/admin/reports')
+def admin_reports():
+    if flask_session.get('user_type') != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('login'))
+    
+    # Generate reports data
+    total_attendance = db.session.query(Attendance).count()
+    attendance_by_course = {}
+    
+    courses = db.session.query(Course).all()
+    for course in courses:
+        course_sessions = len(course.sessions)
+        course_attendance = 0
+        for session in course.sessions:
+            course_attendance += len(session.attendance_records)
+        attendance_by_course[course.name] = {
+            'sessions': course_sessions,
+            'attendance': course_attendance
+        }
+    
+    return render_template('admin_reports.html',
+                         total_attendance=total_attendance,
+                         attendance_by_course=attendance_by_course)
+
+# Lecturer Routes
 @app.route('/lecturer/dashboard')
 def lecturer_dashboard():
     lecturer_id = flask_session.get('user_id')
-    user = User.query.get(lecturer_id)
-    lecturer = Lecturer.query.filter_by(user_id=lecturer_id).first()
+    lecturer = db.session.query(Lecturer).filter_by(user_id=lecturer_id).first()
     
     if not lecturer:
-        # If no lecturer profile exists, redirect to login
         flask_session.clear()
         return redirect(url_for('login'))
     
-    courses = Course.query.filter_by(lecturer_id=lecturer.id).all()
-    total_sessions = SessionModel.query.filter_by(lecturer_id=lecturer.id).count()
+    courses = db.session.query(Course).filter_by(lecturer_id=lecturer.id).all()
+    total_sessions = db.session.query(SessionModel).filter_by(lecturer_id=lecturer.id).count()
     
-    # Get total students across all courses
     total_students = 0
     for course in courses:
         total_students += len(course.students)
     
-    # Get active sessions
-    active_sessions = SessionModel.query.filter_by(
+    active_sessions = db.session.query(SessionModel).filter_by(
         lecturer_id=lecturer.id, 
         status='active'
     ).all()
@@ -94,32 +661,17 @@ def lecturer_dashboard():
                          total_students=total_students,
                          active_sessions=active_sessions)
 
-@app.route('/student/dashboard')
-def student_dashboard():
-    # Use flask_session instead of session
-    student_id = flask_session.get('user_id')
-    user = User.query.get(student_id)
-    student = Student.query.filter_by(user_id=student_id).first()
-    
-    if not student:
-        # If no student profile exists, redirect to login
-        flask_session.clear()
-        return redirect(url_for('login'))
-    
-    # Get active sessions for student's courses
-    active_sessions_list = []
-    for course in student.courses:
-        for session_obj in course.sessions:
-            if session_obj.status == 'active':
-                active_sessions_list.append(session_obj)
-    
-    return render_template('student_dashboard.html', 
-                         student=student,
-                         active_sessions=active_sessions_list)
-
 @app.route('/lecturer/create-session', methods=['GET', 'POST'])
 def create_session():
-    lecturer = Lecturer.query.filter_by(user_id=flask_session.get('user_id')).first()
+    lecturer_id = flask_session.get('user_id')
+    lecturer = db.session.query(Lecturer).filter_by(user_id=lecturer_id).first()
+    
+    if not lecturer:
+        flash('Please login as a lecturer', 'error')
+        return redirect(url_for('login'))
+    
+    # Get lecturer's courses for dropdown
+    courses = db.session.query(Course).filter_by(lecturer_id=lecturer.id).all()
     
     if request.method == 'POST':
         course_id = request.form.get('course_id')
@@ -128,8 +680,17 @@ def create_session():
         start_time = request.form.get('start_time')
         duration = request.form.get('duration')
         location = request.form.get('location')
-        allowed_distance = request.form.get('allowed_distance')
+        allowed_distance = request.form.get('allowed_distance_meters')
+        latitude = request.form.get('latitude')
+        longitude = request.form.get('longitude')
+        allowed_ip_range = request.form.get('allowed_ip_range')
         
+        if not latitude or not longitude:
+            flash('Please capture the lecture room location first', 'error')
+            return render_template('create_session.html', 
+                                 courses=courses,
+                                 error='Please capture the lecture room location first')
+
         new_session = SessionModel(
             course_id=int(course_id),
             name=session_name,
@@ -137,26 +698,32 @@ def create_session():
             start_time=datetime.strptime(start_time, '%H:%M').time(),
             duration_minutes=int(duration),
             location=location,
-            allowed_distance_meters=int(allowed_distance),
+            allowed_distance_meters=int(allowed_distance) if allowed_distance else 50,
+            latitude=float(latitude) if latitude else None,
+            longitude=float(longitude) if longitude else None,
+            allowed_ip_range=allowed_ip_range if allowed_ip_range else None,
             lecturer_id=lecturer.id,
             status='upcoming'
         )
         
         db.session.add(new_session)
         db.session.commit()
-        
+        flash('Session created successfully', 'success')
         return redirect(url_for('my_sessions'))
     
-    # Get lecturer's courses for dropdown
-    courses = Course.query.filter_by(lecturer_id=lecturer.id).all()
     return render_template('create_session.html', courses=courses)
 
 @app.route('/lecturer/my-sessions')
 def my_sessions():
-    lecturer = Lecturer.query.filter_by(user_id=flask_session.get('user_id')).first()
+    lecturer_id = flask_session.get('user_id')
+    lecturer = db.session.query(Lecturer).filter_by(user_id=lecturer_id).first()
+    
+    if not lecturer:
+        flash('Please login as a lecturer', 'error')
+        return redirect(url_for('login'))
     
     # Get all sessions for this lecturer
-    sessions = SessionModel.query.filter_by(lecturer_id=lecturer.id).order_by(SessionModel.date.desc(), SessionModel.start_time.desc()).all()
+    sessions = db.session.query(SessionModel).filter_by(lecturer_id=lecturer.id).order_by(SessionModel.date.desc(), SessionModel.start_time.desc()).all()
     
     # Categorize sessions
     now = datetime.now()
@@ -178,12 +745,70 @@ def my_sessions():
     
     return render_template('my_sessions.html', sessions=sessions)
 
+@app.route('/lecturer/attendance-report/<int:session_id>')
+def attendance_report(session_id):
+    lecturer_id = flask_session.get('user_id')
+    lecturer = db.session.query(Lecturer).filter_by(user_id=lecturer_id).first()
+    
+    if not lecturer:
+        flash('Please login as a lecturer', 'error')
+        return redirect(url_for('login'))
+    
+    session_obj = db.session.get(SessionModel, session_id)
+    
+    if not session_obj:
+        flash('Session not found', 'error')
+        return redirect(url_for('my_sessions'))
+    
+    # Security check: ensure lecturer owns this session
+    if session_obj.lecturer_id != lecturer.id:
+        flash('You do not have permission to view this session', 'error')
+        return redirect(url_for('my_sessions'))
+    
+    # Get all students enrolled in the course
+    course_students = session_obj.course.students
+    
+    # Get attendance records for this session
+    attendance_records = db.session.query(Attendance).filter_by(session_id=session_id).all()
+    
+    # Create a dictionary for quick lookup
+    attendance_dict = {record.student_id: record for record in attendance_records}
+    
+    # Prepare report data
+    report_data = []
+    for student in course_students:
+        attendance = attendance_dict.get(student.id)
+        report_data.append({
+            'student': student,
+            'attendance': attendance,
+            'status': attendance.status if attendance else 'absent',
+            'marked_time': attendance.timestamp if attendance else None,
+            'location': f"{attendance.latitude:.6f}, {attendance.longitude:.6f}" if attendance else 'N/A'
+        })
+    
+    # Sort by student name
+    report_data.sort(key=lambda x: x['student'].user.name)
+    
+    # Calculate statistics
+    total_students = len(course_students)
+    present_count = len([r for r in report_data if r['status'] == 'present'])
+    absent_count = total_students - present_count
+    attendance_rate = (present_count / total_students * 100) if total_students > 0 else 0
+    
+    return render_template('attendance_report.html',
+                         session=session_obj,
+                         report_data=report_data,
+                         total_students=total_students,
+                         present_count=present_count,
+                         absent_count=absent_count,
+                         attendance_rate=round(attendance_rate, 1))
+
 @app.route('/api/session/update-status', methods=['POST'])
 def update_session_status():
     session_id = request.json.get('session_id')
     new_status = request.json.get('status')
     
-    session_obj = SessionModel.query.get(session_id)
+    session_obj = db.session.get(SessionModel, session_id)
     if session_obj:
         session_obj.status = new_status
         db.session.commit()
@@ -193,8 +818,21 @@ def update_session_status():
 
 @app.route('/lecturer/manage-students/<int:course_id>')
 def manage_students(course_id):
-    course = Course.query.get(course_id)
-    all_students = Student.query.all()
+    lecturer_id = flask_session.get('user_id')
+    lecturer = db.session.query(Lecturer).filter_by(user_id=lecturer_id).first()
+    
+    if not lecturer:
+        flash('Please login as a lecturer', 'error')
+        return redirect(url_for('login'))
+    
+    course = db.session.get(Course, course_id)
+    
+    # Check if lecturer owns this course
+    if course.lecturer_id != lecturer.id:
+        flash('You do not have permission to manage this course', 'error')
+        return redirect(url_for('lecturer_dashboard'))
+    
+    all_students = db.session.query(Student).all()
     
     # Get students not in this course
     available_students = [s for s in all_students if s not in course.students]
@@ -205,13 +843,26 @@ def manage_students(course_id):
 
 @app.route('/api/course/add-student', methods=['POST'])
 def add_student_to_course():
+    lecturer_id = flask_session.get('user_id')
+    lecturer = db.session.query(Lecturer).filter_by(user_id=lecturer_id).first()
+    
+    if not lecturer:
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
     course_id = request.json.get('course_id')
     student_id = request.json.get('student_id')
     
-    course = Course.query.get(course_id)
-    student = Student.query.get(student_id)
+    course = db.session.get(Course, course_id)
+    student = db.session.get(Student, student_id)
+    
+    # Check if lecturer owns this course
+    if course.lecturer_id != lecturer.id:
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
     
     if course and student:
+        if len(course.students) >= course.max_capacity:
+            return jsonify({'success': False, 'message': 'Course has reached maximum capacity'})
+        
         if student not in course.students:
             course.students.append(student)
             db.session.commit()
@@ -221,10 +872,71 @@ def add_student_to_course():
     
     return jsonify({'success': False, 'message': 'Invalid course or student'}), 400
 
+@app.route('/api/course/remove-student', methods=['POST'])
+def remove_student_from_course():
+    lecturer_id = flask_session.get('user_id')
+    lecturer = db.session.query(Lecturer).filter_by(user_id=lecturer_id).first()
+    
+    if not lecturer:
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    course_id = request.json.get('course_id')
+    student_id = request.json.get('student_id')
+    
+    course = db.session.get(Course, course_id)
+    student = db.session.get(Student, student_id)
+    
+    # Check if lecturer owns this course
+    if course.lecturer_id != lecturer.id:
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    if course and student:
+        if student in course.students:
+            # Create removal request for admin review
+            removal_request = RemovalRequest(
+                student_id=student.id,
+                course_id=course.id,
+                lecturer_id=lecturer.id,
+                reason=request.json.get('reason', 'No reason provided'),
+                status='pending'
+            )
+            db.session.add(removal_request)
+            db.session.commit()
+            return jsonify({'success': True, 'message': 'Removal request submitted for admin review'})
+        else:
+            return jsonify({'success': False, 'message': 'Student not enrolled in course'})
+    
+    return jsonify({'success': False, 'message': 'Invalid course or student'}), 400
+
+@app.route('/student/dashboard')
+def student_dashboard():
+    student_id = flask_session.get('user_id')
+    student = db.session.query(Student).filter_by(user_id=student_id).first()
+    
+    if not student:
+        flask_session.clear()
+        flash('Please login as a student', 'error')
+        return redirect(url_for('login'))
+    
+    # Get active sessions for student's courses
+    active_sessions_list = []
+    for course in student.courses:
+        for session_obj in course.sessions:
+            if session_obj.status == 'active':
+                active_sessions_list.append(session_obj)
+    
+    return render_template('student_dashboard.html', 
+                         student=student,
+                         active_sessions=active_sessions_list)
+
 @app.route('/student/mark-attendance')
 def mark_attendance():
     student_id = flask_session.get('user_id')
-    student = Student.query.filter_by(user_id=student_id).first()
+    student = db.session.query(Student).filter_by(user_id=student_id).first()
+    
+    if not student:
+        flash('Please login as a student', 'error')
+        return redirect(url_for('login'))
     
     # Get active sessions for student's courses
     active_sessions_list = []
@@ -232,7 +944,7 @@ def mark_attendance():
         for session_obj in course.sessions:
             if session_obj.status == 'active':
                 # Check if already marked attendance
-                existing = Attendance.query.filter_by(
+                existing = db.session.query(Attendance).filter_by(
                     student_id=student.id,
                     session_id=session_obj.id
                 ).first()
@@ -249,32 +961,103 @@ def mark_attendance():
     
     return render_template('mark_attendance.html', sessions=active_sessions_list)
 
+from location_check import check_attendance_location
+
 @app.route('/api/attendance/mark', methods=['POST'])
 def mark_attendance_api():
     student_id = flask_session.get('user_id')
-    student = Student.query.filter_by(user_id=student_id).first()
+    student = db.session.query(Student).filter_by(user_id=student_id).first()
     session_id = request.json.get('session_id')
     
-    # For demo purposes, always approve
-    # In real app, you would validate location here
+    if not student:
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
     
-    new_attendance = Attendance(
-        student_id=student.id,
-        session_id=session_id,
-        latitude=0.0,
-        longitude=0.0,
-        status='present'
+    # Get session
+    session_obj = db.session.get(SessionModel, session_id)
+    
+    # 1. Get student's location from browser
+    student_lat = request.json.get('latitude')
+    student_lon = request.json.get('longitude')
+    accuracy = request.json.get('accuracy')
+    
+    if not student_lat or not student_lon:
+        return jsonify({
+            'success': False,
+            'message': 'Could not get your location. Please enable location services.'
+        }), 400
+    
+    # 2. Check location - make sure session has coordinates
+    if not session_obj.latitude or not session_obj.longitude:
+        return jsonify({
+            'success': False,
+            'message': 'This session does not have location data configured.'
+        }), 400
+    
+    is_within_range, distance = check_attendance_location(
+        student_lat, student_lon,
+        session_obj.latitude, session_obj.longitude,
+        session_obj.allowed_distance_meters,
+        accuracy
     )
     
-    db.session.add(new_attendance)
-    db.session.commit()
+    # 3. Optional: Check network (simplified)
+    ip_valid = True
+    if session_obj.allowed_ip_range:
+        client_ip = request.remote_addr
+        try:
+            network = ipaddress.ip_network(session_obj.allowed_ip_range)
+            ip_valid = ipaddress.ip_address(client_ip) in network
+        except:
+            ip_valid = False
     
-    return jsonify({'success': True})
+    # 4. Mark attendance if valid
+    if is_within_range and ip_valid:
+        # Check if already marked attendance
+        existing = db.session.query(Attendance).filter_by(
+            student_id=student.id,
+            session_id=session_id
+        ).first()
+        
+        if existing:
+            return jsonify({
+                'success': False,
+                'message': 'You have already marked attendance for this session.'
+            }), 400
+        
+        attendance = Attendance(
+            student_id=student.id,
+            session_id=session_id,
+            latitude=student_lat,
+            longitude=student_lon,
+            status='present',
+            verified_by='system'
+        )
+        db.session.add(attendance)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance marked! You were {distance:.1f}m from the lecture room.',
+            'distance': distance
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'message': f'Cannot mark attendance: {"Too far from lecture room" if not is_within_range else "Not on campus network"}',
+            'distance': distance,
+            'max_allowed': session_obj.allowed_distance_meters,
+            'within_range': is_within_range,
+            'network_valid': ip_valid
+        }), 403
 
 @app.route('/student/attendance-analytics')
 def attendance_analytics():
     student_id = flask_session.get('user_id')
-    student = Student.query.filter_by(user_id=student_id).first()
+    student = db.session.query(Student).filter_by(user_id=student_id).first()
+    
+    if not student:
+        flash('Please login as a student', 'error')
+        return redirect(url_for('login'))
     
     # Calculate attendance statistics
     analytics = []
@@ -283,7 +1066,7 @@ def attendance_analytics():
         past_sessions = [s for s in course.sessions if s.status == 'past']
         total_sessions = len(past_sessions)
         
-        attended_sessions = Attendance.query.filter_by(
+        attended_sessions = db.session.query(Attendance).filter_by(
             student_id=student.id,
             status='present'
         ).join(SessionModel).filter(SessionModel.course_id == course.id).count()
@@ -299,11 +1082,42 @@ def attendance_analytics():
     
     return render_template('attendance_analytics.html', analytics=analytics)
 
+def initialize_database():
+    """Initialize the database tables and data"""
+    with app.app_context():
+        # Drop all tables (for development)
+        db.drop_all()
+        print("Dropped all tables")
+        
+        # Create all tables
+        db.create_all()
+        print("Created all tables")
+        
+        # Check if we need to create demo data
+        from database import create_demo_data
+        if db.session.query(User).count() == 0:
+            create_demo_data()
+        else:
+            print("Database already initialized")
+
 if __name__ == '__main__':
+    # Initialize database when starting the app
+    initialize_database()
+    
+    print("\n" + "="*50)
     print("Starting Trackademia application...")
     print("Access the application at: http://localhost:5000")
     print("\nDemo Credentials:")
+    print("  Admin: username='admin', password='admin123'")
     print("  Lecturer: username='lecturer', password='password123'")
     print("  Student: username='student', password='password123'")
     print("  Student 2: username='student2', password='password123'")
+    print("\nAvailable Admin Routes:")
+    print("  /admin/dashboard - Admin dashboard")
+    print("  /admin/users - Manage users")
+    print("  /admin/courses - Manage courses")
+    print("  /admin/removal-requests - Review removal requests")
+    print("  /admin/reports - View system reports")
+    print("="*50 + "\n")
+    
     app.run(debug=True, port=5000)

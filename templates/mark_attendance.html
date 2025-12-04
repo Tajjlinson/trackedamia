@@ -65,3 +65,55 @@
     {% endif %}
 </div>
 {% endblock %}
+
+<!-- In mark_attendance.html, update the JavaScript -->
+<script>
+async function markAttendance(sessionId) {
+    try {
+        // Ask for location permission
+        const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: true,
+                timeout: 10000
+            });
+        });
+        
+        const locationData = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy
+        };
+        
+        // Show loading
+        const button = event.target;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking location...';
+        button.disabled = true;
+        
+        // Send to server
+        const response = await fetch('/api/attendance/mark', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                session_id: sessionId,
+                ...locationData
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert(`✅ ${result.message}`);
+            location.reload();
+        } else {
+            alert(`❌ ${result.message}`);
+            button.innerHTML = '<i class="fas fa-location-dot"></i> Try Again';
+            button.disabled = false;
+        }
+        
+    } catch (error) {
+        alert(`Location error: ${error.message || error}`);
+        event.target.innerHTML = '<i class="fas fa-location-dot"></i> Mark Attendance';
+        event.target.disabled = false;
+    }
+}
+</script>

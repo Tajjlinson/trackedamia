@@ -4,71 +4,216 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trackademia - {% block title %}{% endblock %}</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <h2><i class="fas fa-graduation-cap"></i> Trackademia</h2>
-        </div>
-        
-        <nav class="sidebar-nav">
-            {% if session.user_type == 'lecturer' %}
-            <ul>
-                <li><a href="{{ url_for('lecturer_dashboard') }}" {% if request.endpoint == 'lecturer_dashboard' %}class="active"{% endif %}>
-                    <i class="fas fa-tachometer-alt"></i> Dashboard
-                </a></li>
-                <li><a href="{{ url_for('create_session') }}" {% if request.endpoint == 'create_session' %}class="active"{% endif %}>
-                    <i class="fas fa-plus-circle"></i> Create Session
-                </a></li>
-                <li><a href="{{ url_for('my_sessions') }}" {% if request.endpoint == 'my_sessions' %}class="active"{% endif %}>
-                    <i class="fas fa-calendar-alt"></i> My Sessions
-                </a></li>
-            </ul>
-            {% else %}
-            <ul>
-                <li><a href="{{ url_for('student_dashboard') }}" {% if request.endpoint == 'student_dashboard' %}class="active"{% endif %}>
-                    <i class="fas fa-tachometer-alt"></i> Dashboard
-                </a></li>
-                <li><a href="{{ url_for('mark_attendance') }}" {% if request.endpoint == 'mark_attendance' %}class="active"{% endif %}>
-                    <i class="fas fa-check-circle"></i> Mark Attendance
-                </a></li>
-                <li><a href="{{ url_for('attendance_analytics') }}" {% if request.endpoint == 'attendance_analytics' %}class="active"{% endif %}>
-                    <i class="fas fa-chart-line"></i> Analytics
-                </a></li>
-            </ul>
-            {% endif %}
-        </nav>
-        
-        <div class="user-info" style="padding: 20px; position: absolute; bottom: 20px; width: 100%;">
-            <p style="margin-bottom: 10px;"><strong>{{ session.name }}</strong></p>
-            <p style="margin-bottom: 15px; font-size: 0.9rem; opacity: 0.8;">
-                {% if session.user_type == 'lecturer' %}
-                <i class="fas fa-chalkboard-teacher"></i> Lecturer
-                {% else %}
-                <i class="fas fa-user-graduate"></i> Student
-                {% endif %}
-            </p>
-            <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm" style="width: 100%;">
-                <i class="fas fa-sign-out-alt"></i> Logout
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <!-- Brand/Logo -->
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-chalkboard-teacher me-2"></i>
+                <strong>Trackademia</strong>
             </a>
+            
+            <!-- Mobile Toggle Button -->
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <!-- Navigation Links -->
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    {% if 'user_id' in session %}
+                        {% if session.user_type == 'admin' %}
+                            <!-- Admin Navigation -->
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'admin_dashboard' }}" 
+                                   href="{{ url_for('admin_dashboard') }}">
+                                    <i class="fas fa-tachometer-alt me-1"></i> Dashboard
+                                </a>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" id="usersDropdown" role="button" 
+                                   data-bs-toggle="dropdown">
+                                    <i class="fas fa-users me-1"></i> Users
+                                </a>
+                                <ul class="dropdown-menu">
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('admin_users') }}">
+                                            <i class="fas fa-list me-2"></i> Manage Users
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('admin_create_user') }}">
+                                            <i class="fas fa-user-plus me-2"></i> Create User
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('admin_import_users') }}">
+                                            <i class="fas fa-file-import me-2"></i> Import Users
+                                        </a>
+                                    </li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" id="coursesDropdown" role="button" 
+                                   data-bs-toggle="dropdown">
+                                    <i class="fas fa-book me-1"></i> Courses
+                                </a>
+                                <ul class="dropdown-menu">
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('admin_courses') }}">
+                                            <i class="fas fa-list me-2"></i> All Courses
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('admin_create_course') }}">
+                                            <i class="fas fa-plus-circle me-2"></i> Create Course
+                                        </a>
+                                    </li>
+                                </ul>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'admin_removal_requests' }}" 
+                                   href="{{ url_for('admin_removal_requests') }}">
+                                    <i class="fas fa-clipboard-list me-1"></i> Requests
+                                    {% if pending_requests_count and pending_requests_count > 0 %}
+                                    <span class="badge bg-danger">{{ pending_requests_count }}</span>
+                                    {% endif %}
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'admin_reports' }}" 
+                                   href="{{ url_for('admin_reports') }}">
+                                    <i class="fas fa-chart-bar me-1"></i> Reports
+                                </a>
+                            </li>
+                            
+                        {% elif session.user_type == 'lecturer' %}
+                            <!-- Lecturer Navigation -->
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'lecturer_dashboard' }}" 
+                                   href="{{ url_for('lecturer_dashboard') }}">
+                                    <i class="fas fa-tachometer-alt me-1"></i> Dashboard
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'create_session' }}" 
+                                   href="{{ url_for('create_session') }}">
+                                    <i class="fas fa-plus-circle me-1"></i> Create Session
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'my_sessions' }}" 
+                                   href="{{ url_for('my_sessions') }}">
+                                    <i class="fas fa-calendar-alt me-1"></i> My Sessions
+                                </a>
+                            </li>
+                            
+                        {% elif session.user_type == 'student' %}
+                            <!-- Student Navigation -->
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'student_dashboard' }}" 
+                                   href="{{ url_for('student_dashboard') }}">
+                                    <i class="fas fa-tachometer-alt me-1"></i> Dashboard
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'mark_attendance' }}" 
+                                   href="{{ url_for('mark_attendance') }}">
+                                    <i class="fas fa-check-circle me-1"></i> Mark Attendance
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'attendance_analytics' }}" 
+                                   href="{{ url_for('attendance_analytics') }}">
+                                    <i class="fas fa-chart-bar me-1"></i> Analytics
+                                </a>
+                            </li>
+                        {% endif %}
+                    {% endif %}
+                </ul>
+                
+                <!-- Right Side: User Info & Logout -->
+                <ul class="navbar-nav ms-auto">
+                    {% if 'user_id' in session %}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" 
+                               data-bs-toggle="dropdown">
+                                <i class="fas fa-user-circle me-1"></i> {{ session.name }}
+                                <small class="ms-1">({{ session.user_type|title }})</small>
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <span class="dropdown-item-text">
+                                        <small>Logged in as {{ session.user_type|title }}</small>
+                                    </span>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                {% if session.user_type == 'admin' %}
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('admin_dashboard') }}">
+                                            <i class="fas fa-cog me-2"></i> Admin Settings
+                                        </a>
+                                    </li>
+                                {% elif session.user_type == 'lecturer' %}
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('lecturer_dashboard') }}">
+                                            <i class="fas fa-user-tie me-2"></i> Lecturer Profile
+                                        </a>
+                                    </li>
+                                {% elif session.user_type == 'student' %}
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('student_dashboard') }}">
+                                            <i class="fas fa-user-graduate me-2"></i> Student Profile
+                                        </a>
+                                    </li>
+                                {% endif %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <a class="dropdown-item text-danger" href="{{ url_for('logout') }}">
+                                        <i class="fas fa-sign-out-alt me-2"></i> Logout
+                                    </a>
+                                </li>
+                            </ul>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('login') }}">
+                                <i class="fas fa-sign-in-alt me-1"></i> Login
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
         </div>
-    </div>
-    
-    <div class="main-content">
-        {% with messages = get_flashed_messages() %}
+    </nav>
+
+    <!-- Flash Messages Display -->
+    <div class="container mt-3">
+        {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                {% for message in messages %}
-                    <div class="alert">{{ message }}</div>
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
-        
+    </div>
+
+    <div class="main-content">
         {% block content %}{% endblock %}
     </div>
     
+    <!-- Bootstrap JS Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
