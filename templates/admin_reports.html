@@ -1,0 +1,904 @@
+{% extends "base.html" %}
+{% block title %}Admin - Reports & Analytics{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Header -->
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800">
+            <i class="fas fa-chart-bar mr-2"></i>System Reports & Analytics
+        </h1>
+        <div>
+            <button onclick="exportAllReports()" class="btn btn-success">
+                <i class="fas fa-file-export mr-1"></i> Export All Reports
+            </button>
+            <button onclick="printReports()" class="btn btn-secondary ml-2">
+                <i class="fas fa-print mr-1"></i> Print
+            </button>
+        </div>
+    </div>
+
+    <!-- Date Range Selector -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">
+                <i class="fas fa-calendar-alt mr-2"></i>Report Period
+            </h6>
+        </div>
+        <div class="card-body">
+            <form id="reportFilterForm" class="form-inline">
+                <div class="form-group mr-3">
+                    <label for="startDate" class="mr-2">From:</label>
+                    <input type="date" id="startDate" class="form-control" value="{{ start_date }}">
+                </div>
+                <div class="form-group mr-3">
+                    <label for="endDate" class="mr-2">To:</label>
+                    <input type="date" id="endDate" class="form-control" value="{{ end_date }}">
+                </div>
+                <button type="button" onclick="applyDateFilter()" class="btn btn-primary mr-2">
+                    <i class="fas fa-filter mr-1"></i> Apply Filter
+                </button>
+                <button type="button" onclick="resetDateFilter()" class="btn btn-outline-secondary">
+                    <i class="fas fa-redo mr-1"></i> Reset
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Overview Statistics -->
+    <div class="row">
+        <!-- Total Attendance Card -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                Total Attendance Records
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ total_attendance }}</div>
+                            <div class="mt-2 mb-0">
+                                <span class="text-success mr-2">
+                                    <i class="fas fa-arrow-up"></i> Today: {{ today_attendance }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-clipboard-check fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Users Card -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                Active Users
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ active_users }}</div>
+                            <div class="mt-2 mb-0 text-muted">
+                                <span class="mr-2">Admins: {{ admin_count }}</span>
+                                <span class="mr-2">Lecturers: {{ lecturer_count }}</span>
+                                <span>Students: {{ student_count }}</span>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-users fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Courses Card -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                Active Courses
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ active_courses }}</div>
+                            <div class="mt-2 mb-0">
+                                <span class="text-info mr-2">
+                                    <i class="fas fa-chalkboard-teacher"></i> Sessions: {{ total_sessions }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-book fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Average Attendance Rate Card -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                                Average Attendance Rate
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">{{ avg_attendance_rate }}%</div>
+                            <div class="mt-2 mb-0">
+                                {% if attendance_trend == 'up' %}
+                                <span class="text-success mr-2">
+                                    <i class="fas fa-arrow-up"></i> {{ attendance_change }}%
+                                </span>
+                                <span class="text-muted">vs last period</span>
+                                {% elif attendance_trend == 'down' %}
+                                <span class="text-danger mr-2">
+                                    <i class="fas fa-arrow-down"></i> {{ attendance_change }}%
+                                </span>
+                                <span class="text-muted">vs last period</span>
+                                {% else %}
+                                <span class="text-muted">No change from last period</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-percentage fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Attendance by Course Chart -->
+    <div class="row">
+        <div class="col-xl-8 col-lg-7">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-chart-line mr-2"></i>Attendance Trends by Course
+                    </h6>
+                    <div class="dropdown no-arrow">
+                        <a class="dropdown-toggle" href="#" role="button" id="dropdownMenuLink" 
+                           data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            <i class="fas fa-ellipsis-v fa-sm fa-fw text-gray-400"></i>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-right shadow animated--fade-in"
+                             aria-labelledby="dropdownMenuLink">
+                            <div class="dropdown-header">Chart Options:</div>
+                            <a class="dropdown-item" href="#" onclick="changeChartType('line')">Line Chart</a>
+                            <a class="dropdown-item" href="#" onclick="changeChartType('bar')">Bar Chart</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item" href="#" onclick="exportChart()">Export Chart</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="chart-area">
+                        <canvas id="attendanceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Course Attendance Distribution -->
+        <div class="col-xl-4 col-lg-5">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-chart-pie mr-2"></i>Course Attendance Distribution
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="chart-pie pt-4">
+                        <canvas id="courseDistributionChart"></canvas>
+                    </div>
+                    <div class="mt-4 text-center small">
+                        {% for course_name, data in attendance_by_course.items() %}
+                        <span class="mr-2">
+                            <i class="fas fa-circle" style="color:'{{ loop.cycle('#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796', '#5a5c69') }}'"></i>
+                            {{ course_name }} ({{ data.attendance }})
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detailed Reports Tables -->
+    <div class="row">
+        <!-- Course Performance Table -->
+        <div class="col-xl-6 col-lg-12">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-table mr-2"></i>Course Performance Summary
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered" id="coursePerformanceTable" width="100%" cellspacing="0">
+                            <thead>
+                                <tr>
+                                    <th>Course Code</th>
+                                    <th>Course Name</th>
+                                    <th>Lecturer</th>
+                                    <th>Enrolled</th>
+                                    <th>Sessions</th>
+                                    <th>Attendance</th>
+                                    <th>Rate</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for course in courses %}
+                                {% set course_data = attendance_by_course.get(course.name, {'sessions': 0, 'attendance': 0}) %}
+                                {% set attendance_rate = (course_data.attendance / (course_data.sessions * course.students|length * 100)) if course_data.sessions > 0 and course.students|length > 0 else 0 %}
+                                <tr>
+                                    <td>{{ course.code }}</td>
+                                    <td>{{ course.name }}</td>
+                                    <td>{{ course.lecturer.user.name }}</td>
+                                    <td>{{ course.students|length }}</td>
+                                    <td>{{ course_data.sessions }}</td>
+                                    <td>{{ course_data.attendance }}</td>
+                                    <td>
+                                        <div class="progress">
+                                            <div class="progress-bar 
+                                                {% if attendance_rate >= 80 %}
+                                                    bg-success
+                                                {% elif attendance_rate >= 60 %}
+                                                    bg-warning
+                                                {% else %}
+                                                    bg-danger
+                                                {% endif %}" 
+                                                role="progressbar" 
+                                                style="width: '{{ (attendance_rate * 100)|round|int }}'+'%' "
+                                                aria-valuenow="{{ (attendance_rate * 100)|round|int }}" 
+                                                aria-valuemin="0" 
+                                                aria-valuemax="100">
+                                                {{ (attendance_rate * 100)|round|int }}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-{{ 'success' if course.is_active else 'secondary' }}">
+                                            {{ 'Active' if course.is_active else 'Inactive' }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Performing Students -->
+        <div class="col-xl-6 col-lg-12">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-user-graduate mr-2"></i>Top Performing Students
+                    </h6>
+                    <button onclick="exportTopStudents()" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-download mr-1"></i> Export
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered" id="topStudentsTable" width="100%" cellspacing="0">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Student ID</th>
+                                    <th>Name</th>
+                                    <th>Courses</th>
+                                    <th>Sessions</th>
+                                    <th>Attended</th>
+                                    <th>Rate</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="topStudentsBody">
+                                <!-- Will be populated via JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="text-center mt-3">
+                        <button onclick="loadMoreStudents()" class="btn btn-outline-primary" id="loadMoreBtn">
+                            <i class="fas fa-chevron-down mr-1"></i> Load More
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Usage Statistics -->
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-server mr-2"></i>System Usage Statistics
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3 text-center">
+                            <div class="card border-left-info mb-3">
+                                <div class="card-body">
+                                    <h5 class="card-title">{{ sessions_today }}</h5>
+                                    <p class="card-text text-muted">Sessions Today</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 text-center">
+                            <div class="card border-left-success mb-3">
+                                <div class="card-body">
+                                    <h5 class="card-title">{{ attendance_today }}</h5>
+                                    <p class="card-text text-muted">Attendance Today</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 text-center">
+                            <div class="card border-left-warning mb-3">
+                                <div class="card-body">
+                                    <h5 class="card-title">{{ pending_requests }}</h5>
+                                    <p class="card-text text-muted">Pending Requests</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 text-center">
+                            <div class="card border-left-primary mb-3">
+                                <div class="card-body">
+                                    <h5 class="card-title">{{ avg_session_duration }} min</h5>
+                                    <p class="card-text text-muted">Avg Session Duration</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Options -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">
+                <i class="fas fa-file-export mr-2"></i>Export Reports
+            </h6>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <i class="fas fa-file-csv fa-3x text-success mb-3"></i>
+                            <h5 class="card-title">CSV Export</h5>
+                            <p class="card-text">Export all data in CSV format for Excel</p>
+                            <button onclick="exportCSV()" class="btn btn-success">
+                                <i class="fas fa-download mr-1"></i> Export CSV
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <i class="fas fa-file-pdf fa-3x text-danger mb-3"></i>
+                            <h5 class="card-title">PDF Report</h5>
+                            <p class="card-text">Generate printable PDF report</p>
+                            <button onclick="generatePDF()" class="btn btn-danger">
+                                <i class="fas fa-file-pdf mr-1"></i> Generate PDF
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <i class="fas fa-chart-bar fa-3x text-info mb-3"></i>
+                            <h5 class="card-title">Custom Report</h5>
+                            <p class="card-text">Create custom report with filters</p>
+                            <button onclick="showCustomReportModal()" class="btn btn-info">
+                                <i class="fas fa-cogs mr-1"></i> Custom Report
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Report Modal -->
+<div class="modal fade" id="customReportModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-cogs mr-2"></i>Custom Report Generator</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="customReportForm">
+                    <div class="form-group">
+                        <label>Report Type</label>
+                        <select class="form-control" id="reportType">
+                            <option value="attendance">Attendance Report</option>
+                            <option value="course">Course Performance</option>
+                            <option value="student">Student Performance</option>
+                            <option value="lecturer">Lecturer Activity</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Date Range</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <input type="date" class="form-control" id="customStartDate">
+                            </div>
+                            <div class="col-md-6">
+                                <input type="date" class="form-control" id="customEndDate">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Filters</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="filterActiveOnly">
+                            <label class="form-check-label" for="filterActiveOnly">
+                                Show active courses only
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="filterWithAttendance">
+                            <label class="form-check-label" for="filterWithAttendance">
+                                Show only courses with attendance data
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Sort By</label>
+                        <select class="form-control" id="sortBy">
+                            <option value="attendance_rate">Attendance Rate</option>
+                            <option value="total_attendance">Total Attendance</option>
+                            <option value="course_name">Course Name</option>
+                            <option value="enrollment">Enrollment Count</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Format</label>
+                        <select class="form-control" id="exportFormat">
+                            <option value="csv">CSV</option>
+                            <option value="pdf">PDF</option>
+                            <option value="excel">Excel</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="generateCustomReport()">
+                    <i class="fas fa-play mr-1"></i> Generate Report
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+// Global variables
+let attendanceChart, distributionChart;
+let studentPage = 1;
+const studentsPerPage = 10;
+
+// Initialize charts on page load
+$(document).ready(function() {
+    initializeCharts();
+    loadTopStudents();
+    
+    // Initialize DataTables
+    $('#coursePerformanceTable').DataTable({
+        "pageLength": 10,
+        "ordering": true,
+        "order": [[6, 'desc']],
+        "language": {
+            "search": "Search courses:"
+        }
+    });
+    
+    $('#topStudentsTable').DataTable({
+        "pageLength": 10,
+        "ordering": true,
+        "order": [[0, 'asc']],
+        "searching": false,
+        "paging": false,
+        "info": false
+    });
+});
+
+// Initialize charts
+function initializeCharts() {
+    // Attendance Trends Chart
+    const ctx1 = document.getElementById('attendanceChart').getContext('2d');
+    const courseNames = [
+        '{% for course_name, data in attendance_by_course.items() %}',
+            "{{ course_name }}",
+        '{% endfor %}'
+    ];
+    
+    const attendanceData = [
+        '{% for course_name, data in attendance_by_course.items() %}',
+            '{{ data.attendance }}',
+        '{% endfor %}'
+    ];
+    
+    const sessionData = [
+        '{% for course_name, data in attendance_by_course.items() %}',
+            '{{ data.sessions }}',
+        '{% endfor %}'
+    ];
+    
+    attendanceChart = new Chart(ctx1, {
+        type: 'line',
+        data: {
+            labels: courseNames,
+            datasets: [{
+                label: 'Attendance Count',
+                data: attendanceData,
+                borderColor: '#4e73df',
+                backgroundColor: 'rgba(78, 115, 223, 0.05)',
+                pointBackgroundColor: '#4e73df',
+                pointBorderColor: '#4e73df',
+                pointRadius: 3,
+                borderWidth: 2,
+                fill: true
+            }, {
+                label: 'Sessions',
+                data: sessionData,
+                borderColor: '#1cc88a',
+                backgroundColor: 'rgba(28, 200, 138, 0.05)',
+                pointBackgroundColor: '#1cc88a',
+                pointBorderColor: '#1cc88a',
+                pointRadius: 3,
+                borderWidth: 2,
+                fill: true
+            }]
+        },
+        options: {
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    grid: {
+                        display: false
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        precision: 0
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                }
+            }
+        }
+    });
+    
+    // Course Distribution Chart
+    const ctx2 = document.getElementById('courseDistributionChart').getContext('2d');
+    const colors = ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796', '#5a5c69'];
+    
+    distributionChart = new Chart(ctx2, {
+        type: 'doughnut',
+        data: {
+            labels: courseNames,
+            datasets: [{
+                data: attendanceData,
+                backgroundColor: colors.slice(0, courseNames.length),
+                hoverBackgroundColor: colors.slice(0, courseNames.length),
+                hoverBorderColor: "rgba(234, 236, 244, 1)"
+            }]
+        },
+        options: {
+            maintainAspectRatio: false,
+            cutout: '70%',
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            label += context.parsed + ' attendance records';
+                            return label;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Load top performing students
+function loadTopStudents() {
+    $.ajax({
+        url: '/api/reports/top-students',
+        method: 'GET',
+        data: {
+            page: studentPage,
+            limit: studentsPerPage
+        },
+        success: function(response) {
+            if (response.success) {
+                const students = response.students;
+                let html = '';
+                
+                students.forEach(function(student, index) {
+                    const rank = (studentPage - 1) * studentsPerPage + index + 1;
+                    html += `
+                        <tr>
+                            <td>${rank}</td>
+                            <td>${student.student_id}</td>
+                            <td>${student.name}</td>
+                            <td>${student.courses_count}</td>
+                            <td>${student.total_sessions}</td>
+                            <td>${student.attended_sessions}</td>
+                            <td>
+                                <div class="progress">
+                                    <div class="progress-bar 
+                                        ${student.attendance_rate >= 80 ? 'bg-success' : 
+                                          student.attendance_rate >= 60 ? 'bg-warning' : 'bg-danger'}" 
+                                        role="progressbar" 
+                                        style="width: ${student.attendance_rate}%"
+                                        aria-valuenow="${student.attendance_rate}" 
+                                        aria-valuemin="0" 
+                                        aria-valuemax="100">
+                                        ${student.attendance_rate}%
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge badge-${student.is_active ? 'success' : 'secondary'}">
+                                    ${student.is_active ? 'Active' : 'Inactive'}
+                                </span>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                $('#topStudentsBody').append(html);
+                
+                // Hide load more button if no more students
+                if (students.length < studentsPerPage) {
+                    $('#loadMoreBtn').hide();
+                }
+            }
+        },
+        error: function() {
+            console.error('Error loading top students');
+        }
+    });
+}
+
+// Load more students
+function loadMoreStudents() {
+    studentPage++;
+    loadTopStudents();
+}
+
+// Apply date filter
+function applyDateFilter() {
+    const startDate = $('#startDate').val();
+    const endDate = $('#endDate').val();
+    
+    if (!startDate || !endDate) {
+        alert('Please select both start and end dates');
+        return;
+    }
+    
+    // Reload page with date parameters
+    window.location.href = `/admin/reports?start_date=${startDate}&end_date=${endDate}`;
+}
+
+// Reset date filter
+function resetDateFilter() {
+    window.location.href = '/admin/reports';
+}
+
+// Change chart type
+function changeChartType(type) {
+    if (attendanceChart) {
+        attendanceChart.destroy();
+        const ctx = document.getElementById('attendanceChart').getContext('2d');
+        
+        // Get current data
+        const data = attendanceChart.data;
+        
+        attendanceChart = new Chart(ctx, {
+            type: type,
+            data: data,
+            options: attendanceChart.options
+        });
+    }
+}
+
+// Export chart as image
+function exportChart() {
+    const link = document.createElement('a');
+    link.download = 'attendance-chart.png';
+    link.href = document.getElementById('attendanceChart').toDataURL();
+    link.click();
+}
+
+// Export all reports
+function exportAllReports() {
+    if (confirm('Export all reports as CSV?')) {
+        window.location.href = '/api/reports/export-all';
+    }
+}
+
+// Print reports
+function printReports() {
+    window.print();
+}
+
+// Export CSV
+function exportCSV() {
+    window.location.href = '/api/reports/export-csv';
+}
+
+// Generate PDF
+function generatePDF() {
+    showAlert('PDF generation started. You will be notified when ready.', 'info');
+    // In a real implementation, this would trigger a background job
+}
+
+// Show custom report modal
+function showCustomReportModal() {
+    $('#customReportModal').modal('show');
+}
+
+// Generate custom report
+function generateCustomReport() {
+    const reportType = $('#reportType').val();
+    const startDate = $('#customStartDate').val();
+    const endDate = $('#customEndDate').val();
+    const activeOnly = $('#filterActiveOnly').is(':checked');
+    const withAttendance = $('#filterWithAttendance').is(':checked');
+    const sortBy = $('#sortBy').val();
+    const format = $('#exportFormat').val();
+    
+    // Build query parameters
+    let params = `type=${reportType}&format=${format}`;
+    if (startDate) params += `&start_date=${startDate}`;
+    if (endDate) params += `&end_date=${endDate}`;
+    if (activeOnly) params += `&active_only=true`;
+    if (withAttendance) params += `&with_attendance=true`;
+    if (sortBy) params += `&sort_by=${sortBy}`;
+    
+    // Close modal and trigger download
+    $('#customReportModal').modal('hide');
+    window.location.href = `/api/reports/custom?${params}`;
+}
+
+// Export top students
+function exportTopStudents() {
+    window.location.href = '/api/reports/export-top-students';
+}
+
+// Show alert
+function showAlert(message, type = 'info') {
+    const alertClass = type === 'success' ? 'alert-success' : 
+                      type === 'error' ? 'alert-danger' : 
+                      type === 'warning' ? 'alert-warning' : 'alert-info';
+    
+    const alertHtml = `
+        <div class="alert ${alertClass} alert-dismissible fade show position-fixed" 
+             style="top: 20px; right: 20px; z-index: 1050;" role="alert">
+            ${message}
+            <button type="button" class="close" data-dismiss="alert">
+                <span>&times;</span>
+            </button>
+        </div>
+    `;
+    
+    $('.alert-container').remove();
+    $('body').append('<div class="alert-container"></div>');
+    $('.alert-container').append(alertHtml);
+    
+    // Auto remove after 5 seconds
+    setTimeout(function() {
+        $('.alert').alert('close');
+    }, 5000);
+}
+</script>
+
+<style>
+.card {
+    margin-bottom: 1.5rem;
+    border: 1px solid #e3e6f0;
+    border-radius: 0.35rem;
+}
+
+.card-header {
+    background-color: #f8f9fc;
+    border-bottom: 1px solid #e3e6f0;
+}
+
+.chart-area, .chart-pie {
+    position: relative;
+    height: 300px;
+}
+
+.table th {
+    background-color: #f8f9fa;
+    border-top: none;
+}
+
+.progress {
+    height: 1.5rem;
+    border-radius: 0.35rem;
+}
+
+.progress-bar {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.badge {
+    padding: 0.4em 0.65em;
+    font-size: 0.75em;
+    font-weight: 600;
+}
+
+/* Print styles */
+@media print {
+    .btn, .dropdown, .form-inline, .alert-container {
+        display: none !important;
+    }
+    
+    .card {
+        border: 1px solid #000;
+        break-inside: avoid;
+    }
+    
+    .chart-area, .chart-pie {
+        height: 250px;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .chart-area, .chart-pie {
+        height: 200px;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+}
+</style>
+
+<div class="alert-container"></div>
+{% endblock %}

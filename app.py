@@ -961,6 +961,33 @@ def mark_attendance():
     
     return render_template('mark_attendance.html', sessions=active_sessions_list)
 
+
+
+@app.route('/api/student/details/<int:student_id>')
+def api_student_details(student_id):
+    if flask_session.get('user_type') != 'admin':
+        return jsonify({'success': False, 'message': 'Access denied'}), 403
+    
+    student = db.session.get(Student, student_id)
+    if not student:
+        return jsonify({'success': False, 'message': 'Student not found'}), 404
+    
+    return jsonify({
+        'success': True,
+        'student': {
+            'id': student.id,
+            'student_id': student.student_id,
+            'major': student.major,
+            'enrollment_year': student.enrollment_year,
+            'user': {
+                'name': student.user.name,
+                'email': student.user.email,
+                'is_active': student.user.is_active
+            },
+            'courses_count': len(student.courses)
+        }
+    })
+
 from location_check import check_attendance_location
 
 @app.route('/api/attendance/mark', methods=['POST'])
@@ -1082,7 +1109,6 @@ def attendance_analytics():
     
     return render_template('attendance_analytics.html', analytics=analytics)
 
-<<<<<<< HEAD
 def initialize_database():
     """Initialize the database tables and data"""
     with app.app_context():
@@ -1100,61 +1126,6 @@ def initialize_database():
             create_demo_data()
         else:
             print("Database already initialized")
-=======
-@app.route('/admin/dashboard')
-def admin_dashboard():
-    if flask_session.get('user_type') != 'admin':
-        return redirect(url_for('index'))
-    
-    users = User.query.all()
-    return render_template('admin_dashboard.html', users=users)
-
-@app.route('/admin/add-user', methods=['POST'])
-def add_user():
-    if flask_session.get('user_type') != 'admin':
-        return redirect(url_for('index'))
-    
-    name = request.form.get('name')
-    username = request.form.get('username')
-    password = request.form.get('password')
-    user_type = request.form.get('user_type')
-    
-    if User.query.filter_by(username=username).first():
-        return "Username already exists", 400
-    
-    new_user = User(username=username, name=name, user_type=user_type)
-    new_user.set_password(password)
-    db.session.add(new_user)
-    db.session.commit()
-    
-    if user_type == 'student':
-        student = Student(user_id=new_user.id, student_id=f"S{new_user.id:05}")
-        db.session.add(student)
-    elif user_type == 'lecturer':
-        lecturer = Lecturer(user_id=new_user.id)
-        db.session.add(lecturer)
-    
-    db.session.commit()
-    
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin/delete-user/<int:user_id>', methods=['POST'])
-def delete_user(user_id):
-    if flask_session.get('user_type') != 'admin':
-        return redirect(url_for('index'))
-    
-    user = User.query.get(user_id)
-    if user and user.user_type != 'admin':
-        if user.user_type == 'student':
-            Student.query.filter_by(user_id=user.id).delete()
-        elif user.user_type == 'lecturer':
-            Lecturer.query.filter_by(user_id=user.id).delete()
-        db.session.delete(user)
-        db.session.commit()
-    
-    return redirect(url_for('admin_dashboard'))
-
->>>>>>> c6b4ee65bf83d6be63b41d5377f9f21575ab12fc
 
 if __name__ == '__main__':
     # Initialize database when starting the app
@@ -1168,7 +1139,6 @@ if __name__ == '__main__':
     print("  Lecturer: username='lecturer', password='password123'")
     print("  Student: username='student', password='password123'")
     print("  Student 2: username='student2', password='password123'")
-<<<<<<< HEAD
     print("\nAvailable Admin Routes:")
     print("  /admin/dashboard - Admin dashboard")
     print("  /admin/users - Manage users")
@@ -1178,6 +1148,3 @@ if __name__ == '__main__':
     print("="*50 + "\n")
     
     app.run(debug=True, port=5000)
-=======
-    app.run(debug=True, port=5000)
->>>>>>> c6b4ee65bf83d6be63b41d5377f9f21575ab12fc

@@ -73,6 +73,7 @@ function markAttendance(sessionId) {
                         location.reload();
                     } else {
                         alert('Failed to mark attendance');
+                        alert(data.message)
                     }
                 })
                 .catch(error => {
