@@ -281,8 +281,8 @@ def admin_import_users():
         
         file = request.files['csv_file']
         if file.filename == '':
-                    flash('No file selected', 'error')
-        return redirect(request.url)
+            flash('No file selected', 'error')
+            return redirect(request.url)  # Removed extra return
         
         if file and file.filename.endswith('.csv'):
             try:
@@ -291,6 +291,12 @@ def admin_import_users():
                 
                 imported_count = 0
                 for row in csv_input:
+                    # Check if username exists
+                    existing_user = db.session.query(User).filter_by(username=row.get('username')).first()
+                    if existing_user:
+                        flash(f"Username {row.get('username')} already exists", 'warning')
+                        continue
+                    
                     # Create user
                     user = User(
                         username=row.get('username'),
@@ -301,7 +307,7 @@ def admin_import_users():
                     )
                     user.set_password(row.get('password', 'password123'))
                     db.session.add(user)
-                    db.session.commit()
+                    db.session.commit()  # Commit to get user.id
                     
                     # Create profile
                     if user.user_type == 'student':
@@ -321,6 +327,12 @@ def admin_import_users():
                             office_hours=row.get('office_hours')
                         )
                         db.session.add(lecturer)
+                    elif user.user_type == 'admin':
+                        admin = Admin(
+                            user_id=user.id,
+                            role=row.get('role', 'administrator')
+                        )
+                        db.session.add(admin)
                     
                     imported_count += 1
                 
@@ -421,48 +433,80 @@ def admin_course_enrollments(course_id):
 
 @app.route('/admin/courses/enroll', methods=['POST'])
 def admin_enroll_student():
+    print(f"DEBUG: Enroll request - user_type: {flask_session.get('user_type')}")
+    print(f"DEBUG: Request method: {request.method}")
+    print(f"DEBUG: Request content type: {request.content_type}")
+    print(f"DEBUG: Request form: {request.form}")
+    print(f"DEBUG: Request json: {request.get_json(silent=True)}")
+    
     if flask_session.get('user_type') != 'admin':
         return jsonify({'success': False, 'message': 'Access denied'}), 403
     
-    course_id = request.json.get('course_id')
-    student_id = request.json.get('student_id')
+    # Try to get data from both JSON and form data
+    if request.is_json:
+        data = request.get_json()
+    else:
+        data = request.form
+    
+    print(f"DEBUG: Parsed data: {data}")
+    
+    course_id = data.get('course_id')
+    student_id = data.get('student_id')
+    
+    print(f"DEBUG: Course ID: {course_id}, Student ID: {student_id}")
+    
+    if not course_id or not student_id:
+        return jsonify({'success': False, 'message': 'Missing course_id or student_id'}), 400
     
     course = db.session.get(Course, course_id)
     student = db.session.get(Student, student_id)
     
-    if course and student:
-        if len(course.students) >= course.max_capacity:
-            return jsonify({'success': False, 'message': 'Course has reached maximum capacity'})
-        
-        if student not in course.students:
-            course.students.append(student)
-            db.session.commit()
-            return jsonify({'success': True})
-        else:
-            return jsonify({'success': False, 'message': 'Student already enrolled in course'})
+    if not course:
+        return jsonify({'success': False, 'message': 'Course not found'}), 404
+    if not student:
+        return jsonify({'success': False, 'message': 'Student not found'}), 404
     
-    return jsonify({'success': False, 'message': 'Invalid course or student'}), 400
+    if len(course.students) >= course.max_capacity:
+        return jsonify({'success': False, 'message': 'Course has reached maximum capacity'})
+    
+    if student not in course.students:
+        course.students.append(student)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Student enrolled successfully'})
+    else:
+        return jsonify({'success': False, 'message': 'Student already enrolled in course'})
 
 @app.route('/admin/courses/unenroll', methods=['POST'])
 def admin_unenroll_student():
     if flask_session.get('user_type') != 'admin':
         return jsonify({'success': False, 'message': 'Access denied'}), 403
     
-    course_id = request.json.get('course_id')
-    student_id = request.json.get('student_id')
+    # Try to get data from both JSON and form data
+    if request.is_json:
+        data = request.get_json()
+    else:
+        data = request.form
+    
+    course_id = data.get('course_id')
+    student_id = data.get('student_id')
+    
+    if not course_id or not student_id:
+        return jsonify({'success': False, 'message': 'Missing course_id or student_id'}), 400
     
     course = db.session.get(Course, course_id)
     student = db.session.get(Student, student_id)
     
-    if course and student:
-        if student in course.students:
-            course.students.remove(student)
-            db.session.commit()
-            return jsonify({'success': True})
-        else:
-            return jsonify({'success': False, 'message': 'Student not enrolled in course'})
+    if not course:
+        return jsonify({'success': False, 'message': 'Course not found'}), 404
+    if not student:
+        return jsonify({'success': False, 'message': 'Student not found'}), 404
     
-    return jsonify({'success': False, 'message': 'Invalid course or student'}), 400
+    if student in course.students:
+        course.students.remove(student)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Student removed from course successfully'})
+    else:
+        return jsonify({'success': False, 'message': 'Student not enrolled in course'})
 
 @app.route('/admin/removal-requests')
 def admin_removal_requests():
@@ -631,10 +675,19 @@ def admin_reports():
             'attendance': course_attendance
         }
     
+    # Get statistics for the template
+    total_courses = db.session.query(Course).count()
+    total_sessions = db.session.query(SessionModel).count()
+    total_students = db.session.query(Student).count()
+    total_lecturers = db.session.query(Lecturer).count()
+    
     return render_template('admin_reports.html',
                          total_attendance=total_attendance,
-                         attendance_by_course=attendance_by_course)
-
+                         attendance_by_course=attendance_by_course,
+                         total_courses=total_courses,
+                         total_sessions=total_sessions,
+                         total_students=total_students,
+                         total_lecturers=total_lecturers)
 # Add these API endpoints that the template expects
 @app.route('/api/reports/top-students')
 def api_top_students():
@@ -741,7 +794,7 @@ def export_reports():
         return redirect(url_for('login'))
     
     # Create CSV data
-    output = BytesIO()
+    output = io.StringIO()  # Changed from BytesIO to StringIO
     writer = csv.writer(output, delimiter=',')
     
     # Write header
@@ -773,7 +826,7 @@ def export_reports():
     # Add summary row
     writer.writerow([])  # Empty row
     writer.writerow(['SUMMARY', '', '', ''])
-    total_sessions = db.session.query(session).count()
+    total_sessions = db.session.query(SessionModel).count()  # Fixed: SessionModel instead of session
     total_attendance = db.session.query(Attendance).count()
     writer.writerow(['Total Sessions', total_sessions, '', ''])
     writer.writerow(['Total Attendance Records', total_attendance, '', ''])
@@ -781,12 +834,16 @@ def export_reports():
     # Prepare response
     output.seek(0)
     
+    # Convert to bytes
+    csv_bytes = output.getvalue().encode('utf-8')
+    
     return send_file(
-        output,
+        io.BytesIO(csv_bytes),
         as_attachment=True,
         download_name='trackademia_reports.csv',
         mimetype='text/csv'
     )
+    
 
 @app.route('/api/reports/custom')
 def custom_report():
@@ -1107,10 +1164,22 @@ def student_dashboard():
             if session_obj.status == 'active' and session_obj.date == today:
                 today_active_sessions.append(session_obj)
     
-    return render_template('student_dashboard.html', 
-                         student=student,
-                         upcoming_sessions=upcoming_sessions,
-                         today_active_sessions=today_active_sessions)
+    # NEW: sessions starting in the next 15 minutes
+    now = datetime.now()
+    time_threshold = now + timedelta(minutes=15)
+    soon_sessions = []
+    for s in upcoming_sessions:
+        session_dt = datetime.combine(s.date, s.start_time)
+        if now <= session_dt <= time_threshold:
+            soon_sessions.append(s)
+    
+    return render_template(
+        'student_dashboard.html',
+        student=student,
+        upcoming_sessions=upcoming_sessions,
+        today_active_sessions=today_active_sessions,
+        soon_sessions=soon_sessions,   # pass this to the template
+    )
 
 
 @app.route('/student/mark-attendance')
@@ -1241,7 +1310,8 @@ def mark_attendance_api():
             latitude=student_lat,
             longitude=student_lon,
             status='present',
-            verified_by='system'
+            verified_by='system',
+            timestamp=datetime.now()  # Changed from datetime.utcnow()
         )
         db.session.add(attendance)
         db.session.commit()
@@ -1249,7 +1319,8 @@ def mark_attendance_api():
         return jsonify({
             'success': True,
             'message': f'Attendance marked! You were {distance:.1f}m from the lecture room.',
-            'distance': distance
+            'distance': distance,
+            'timestamp': attendance.timestamp.strftime('%Y-%m-%d %H:%M:%S')  # Add formatted timestamp
         })
     else:
         return jsonify({
@@ -1292,6 +1363,64 @@ def attendance_analytics():
         })
     
     return render_template('attendance_analytics.html', analytics=analytics)
+
+import threading
+import time
+from datetime import datetime, timedelta
+
+def check_upcoming_sessions():
+    """Check for sessions starting in 15 minutes and send notifications"""
+    with app.app_context():
+        try:
+            now = datetime.now()
+            time_threshold = now + timedelta(minutes=15)
+            
+            # Find sessions starting within the next 15 minutes
+            upcoming_sessions = db.session.query(SessionModel).filter(
+                SessionModel.status == 'upcoming',
+                SessionModel.date == now.date(),
+                SessionModel.start_time.between(
+                    now.time(),
+                    time_threshold.time()
+                )
+            ).all()
+            
+            for session in upcoming_sessions:
+                # For each student in the course
+                for student in session.course.students:
+                    # Here you would implement actual notification logic
+                    # For now, we'll just log it
+                    print(f"NOTIFICATION: {student.user.name} - {session.course.name} starts in 15 minutes at {session.start_time}")
+                    
+                    # You could add this to a notifications table:
+                    # notification = Notification(
+                    #     user_id=student.user_id,
+                    #     message=f"Upcoming: {session.course.name} ({session.name}) starts in 15 minutes",
+                    #     type='reminder',
+                    #     created_at=datetime.utcnow()
+                    # )
+                    # db.session.add(notification)
+            
+            db.session.commit()
+            
+        except Exception as e:
+            print(f"Error checking upcoming sessions: {e}")
+
+# Add this to run the notification checker in a separate thread
+def start_notification_checker():
+    """Start background thread to check for notifications"""
+    def notification_loop():
+        while True:
+            check_upcoming_sessions()
+            time.sleep(60)  # Check every minute
+    
+    thread = threading.Thread(target=notification_loop, daemon=True)
+    thread.start()
+
+# Call this after app initialization in main
+if __name__ == '__main__':
+    start_notification_checker()  # Add this line
+    # ... rest of your code
 
 def initialize_database():
     """Initialize the database tables and data"""

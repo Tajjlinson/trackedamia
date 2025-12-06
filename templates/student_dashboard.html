@@ -34,6 +34,24 @@
     </div>
 </div>
 
+{% if soon_sessions %}
+<div class="alert alert-info alert-dismissible fade show" role="alert">
+    <strong>Upcoming session reminder:</strong>
+    <ul class="mb-0">
+        {% for s in soon_sessions %}
+        <li>
+            <strong>{{ s.course.name }}</strong> – {{ s.name }}
+            starts at {{ s.start_time.strftime('%I:%M %p') }}
+            ({{ s.date.strftime('%b %d, %Y') }})
+        </li>
+        {% endfor %}
+    </ul>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+
+
 {% if today_active_sessions %}
 <div class="table-container alert alert-info">
     <h3><i class="fas fa-exclamation-circle"></i> Today's Active Sessions</h3>

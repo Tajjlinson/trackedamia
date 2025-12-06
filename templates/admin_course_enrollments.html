@@ -60,7 +60,7 @@
                                     bg-success
                                 {% endif %}" 
                                 role="progressbar" 
-                                style="width: '{{ percentage_int }}''%' "
+                                style="width: '{{ percentage_int }}' + '%';"
                                 aria-valuenow="{{ enrolled_students|length }}" 
                                 aria-valuemin="0" 
                                 aria-valuemax="{{ course.max_capacity }}">
@@ -103,11 +103,12 @@
                                     <td>{{ student.user.name }}</td>
                                     <td>{{ student.major }}</td>
                                     <td>
-                                        <button onclick="unenrollStudent('{{ student.id }}')" 
-                                                class="btn btn-danger btn-sm" 
-                                                title="Remove from course">
-                                            <i class="fas fa-user-minus"></i>
-                                        </button>
+                                        <button class="btn btn-danger btn-sm unenroll-btn" 
+                                            data-student-id="{{ student.id }}"
+                                            title="Remove from course">
+                                        <i class="fas fa-user-minus"></i>
+                                    </button>
+
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -168,11 +169,14 @@
                                     <td>{{ student.user.name }}</td>
                                     <td>{{ student.major }}</td>
                                     <td>
-                                        <button onclick="enrollStudent('{{ student.id }}')" 
-                                                class="btn btn-success btn-sm"
-                                                title="Add to course">
-                                            <i class="fas fa-plus"></i> Add
-                                        </button>
+                                        <button class="btn btn-success btn-sm enroll-btn"
+                                            data-student-id="{{ student.id }}"
+                                            data-course-id="{{ course.id }}"
+                                            title="Add to course">
+                                        <i class="fas fa-plus"></i> Add
+                                    </button>
+
+                                    </button>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -224,186 +228,133 @@
 
 <script>
 // Global variables
-const courseId = '{{ course.id }}';
-const maxCapacity = '{{ course.max_capacity }}';
-let currentEnrollmentCount = '{{ enrolled_students|length }}';
+const courseId = parseInt('{{ course.id }}') || 0;
+const maxCapacity = parseInt('{{ course.max_capacity }}') || 30;
+let currentEnrollmentCount = parseInt('{{ enrolled_students|length }}') || 0;
 
-// Initialize DataTable for enrolled students
-$(document).ready(function() {
-    $('#enrolledTable').DataTable({
-        "pageLength": 10,
-        "ordering": true,
-        "order": [[1, 'asc']],
-        "language": {
-            "emptyTable": "No students enrolled",
-            "search": "Search enrolled students:"
-        }
+console.log('Admin Enrollments – courseId:', courseId);
+
+// Run when page is ready
+document.addEventListener('DOMContentLoaded', function () {
+    // Initialize DataTable if jQuery/DataTables is available
+    if (window.jQuery && $.fn.DataTable) {
+        $('#enrolledTable').DataTable({
+            pageLength: 10,
+            ordering: true,
+            order: [[1, 'asc']]
+        });
+    }
+
+    // 🔹 Attach click handlers for "Add" buttons
+    document.querySelectorAll('.enroll-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const studentId = this.dataset.studentId;
+            console.log('Enroll clicked – studentId:', studentId);
+            enrollStudent(studentId);
+        });
     });
+
+    // 🔹 Attach click handlers for "Remove" buttons
+    document.querySelectorAll('.unenroll-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const studentId = this.dataset.studentId;
+            console.log('Unenroll clicked – studentId:', studentId);
+            unenrollStudent(studentId);
+        });
+    });
+
+    // Update progress bar and count
+    updateCapacityProgress();
 });
 
-// Filter available students
-function filterStudents() {
-    const searchText = $('#studentSearch').val().toLowerCase();
-    
-    $('#availableStudentsBody tr').each(function() {
-        const studentId = $(this).find('td:eq(0)').text().toLowerCase();
-        const studentName = $(this).find('td:eq(1)').text().toLowerCase();
-        const studentMajor = $(this).find('td:eq(2)').text().toLowerCase();
-        
-        const matchesSearch = studentId.includes(searchText) || 
-                             studentName.includes(searchText) || 
-                             studentMajor.includes(searchText);
-        
-        if (matchesSearch) {
-            $(this).show();
+// ✅ Use your existing admin endpoints
+function enrollStudent(studentId) {
+    fetch('/admin/courses/enroll', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            course_id: courseId,
+            student_id: studentId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Enroll response:', data);
+        if (data.success) {
+            alert(data.message || 'Student enrolled successfully');
+            location.reload();
         } else {
-            $(this).hide();
+            alert('Error: ' + (data.message || 'Unable to enroll student'));
         }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while enrolling student');
     });
 }
 
-// Enroll a single student
-function enrollStudent(studentId) {
-    const studentRow = $('#available-' + studentId);
-    const studentName = studentRow.find('td:eq(1)').text();
-    
-    if (currentEnrollmentCount >= maxCapacity) {
-        alert('Course has reached maximum capacity!');
+function unenrollStudent(studentId) {
+    if (!confirm('Are you sure you want to remove this student from the course?')) {
         return;
     }
-    
-    showConfirmation(
-        'Enroll ' + studentName + '?',
-        'Are you sure you want to enroll ' + studentName + ' in this course?',
-        function() {
-            $.ajax({
-                url: '/admin/courses/enroll',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    course_id: courseId,
-                    student_id: studentId
-                }),
-                success: function(response) {
-                    if (response.success) {
-                        // Move student from available to enrolled table
-                        const studentData = studentRow.find('td');
-                        
-                        // Remove from available table
-                        studentRow.remove();
-                        
-                        // Add to enrolled table
-                        const newRow = '<tr id="student-' + studentId + '">' +
-                            '<td>' + studentData.eq(0).text() + '</td>' +
-                            '<td>' + studentData.eq(1).text() + '</td>' +
-                            '<td>' + studentData.eq(2).text() + '</td>' +
-                            '<td>' +
-                                '<button onclick="unenrollStudent(' + studentId + ')" ' +
-                                        'class="btn btn-danger btn-sm">' +
-                                    '<i class="fas fa-user-minus"></i>' +
-                                '</button>' +
-                            '</td>' +
-                        '</tr>';
-                        
-                        $('#enrolledTable tbody').append(newRow);
-                        currentEnrollmentCount++;
-                        updateCapacityProgress();
-                        
-                        // Update DataTable
-                        $('#enrolledTable').DataTable().draw();
-                        
-                        alert(studentName + ' enrolled successfully!');
-                        // Reload page to refresh data
-                        setTimeout(function() {
-                            location.reload();
-                        }, 1000);
-                    } else {
-                        alert('Error: ' + (response.message || 'Failed to enroll student'));
-                    }
-                },
-                error: function() {
-                    alert('Error enrolling student. Please try again.');
-                }
-            });
+
+    fetch('/admin/courses/unenroll', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            course_id: courseId,
+            student_id: studentId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Unenroll response:', data);
+        if (data.success) {
+            alert(data.message || 'Student removed successfully');
+            location.reload();
+        } else {
+            alert('Error: ' + (data.message || 'Unable to remove student'));
         }
-    );
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while removing student');
+    });
 }
 
-// Unenroll a student
-function unenrollStudent(studentId) {
-    const studentRow = $('#student-' + studentId);
-    const studentName = studentRow.find('td:eq(1)').text();
-    
-    showConfirmation(
-        'Remove ' + studentName + '?',
-        'Are you sure you want to remove ' + studentName + ' from this course?',
-        function() {
-            $.ajax({
-                url: '/admin/courses/unenroll',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    course_id: courseId,
-                    student_id: studentId
-                }),
-                success: function(response) {
-                    if (response.success) {
-                        // Remove from enrolled table
-                        studentRow.remove();
-                        currentEnrollmentCount--;
-                        updateCapacityProgress();
-                        
-                        // Update DataTable
-                        $('#enrolledTable').DataTable().draw();
-                        
-                        alert(studentName + ' removed from course successfully!');
-                        // Reload page to refresh data
-                        setTimeout(function() {
-                            location.reload();
-                        }, 1000);
-                    } else {
-                        alert('Error: ' + (response.message || 'Failed to remove student'));
-                    }
-                },
-                error: function() {
-                    alert('Error removing student. Please try again.');
-                }
-            });
-        }
-    );
-}
-
-// Update capacity progress bar
+// Update capacity progress bar + text
 function updateCapacityProgress() {
     const percentage = (currentEnrollmentCount / maxCapacity) * 100;
     const percentageInt = Math.round(percentage);
-    const progressBar = $('.progress-bar');
-    
-    progressBar.css('width', percentageInt + '%');
-    progressBar.attr('aria-valuenow', currentEnrollmentCount);
-    progressBar.text(percentageInt + '% Full');
-    
-    // Update color based on capacity
-    if (percentage >= 90) {
-        progressBar.removeClass('bg-success bg-warning').addClass('bg-danger');
-    } else if (percentage >= 75) {
-        progressBar.removeClass('bg-success bg-danger').addClass('bg-warning');
-    } else {
-        progressBar.removeClass('bg-warning bg-danger').addClass('bg-success');
-    }
-    
-    // Update enrollment count display
-    $('.enrollment-count').text(currentEnrollmentCount + ' / ' + maxCapacity);
-}
 
-// Show confirmation modal
-function showConfirmation(title, message, confirmCallback) {
-    $('#confirmationTitle').text(title);
-    $('#confirmationMessage').text(message);
-    $('#confirmActionButton').off('click').on('click', confirmCallback);
-    $('#confirmationModal').modal('show');
+    const progressBar = document.querySelector('.progress-bar');
+    if (progressBar) {
+        progressBar.style.width = percentageInt + '%';
+        progressBar.textContent = percentageInt + '%';
+
+        progressBar.classList.remove('bg-success', 'bg-warning', 'bg-danger');
+
+        if (percentage >= 100) {
+            progressBar.classList.add('bg-danger');
+        } else if (percentage >= 75) {
+            progressBar.classList.add('bg-warning');
+        } else {
+            progressBar.classList.add('bg-success');
+        }
+    }
+
+    const enrollmentCountElement = document.querySelector('.enrollment-count');
+    if (enrollmentCountElement) {
+        enrollmentCountElement.textContent =
+            currentEnrollmentCount + ' / ' + maxCapacity + ' students';
+    }
 }
 </script>
+
 
 <style>
 .card {

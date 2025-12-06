@@ -161,7 +161,7 @@ class Attendance(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('students.id'), nullable=False)
     session_id = db.Column(db.Integer, db.ForeignKey('sessions.id'), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now())  # Uses local time
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
     status = db.Column(db.String(20), default='present')  # present, absent, excused

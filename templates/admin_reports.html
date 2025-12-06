@@ -70,10 +70,10 @@
                             <td>{{ attendance_by_course.values()|sum(attribute='sessions') }}</td>
                             <td>{{ attendance_by_course.values()|sum(attribute='attendance') }}</td>
                             <td>
-                                {% set total_sessions = attendance_by_course.values()|sum(attribute='sessions') %}
-                                {% set total_attendance = attendance_by_course.values()|sum(attribute='attendance') %}
-                                {% if total_sessions > 0 %}
-                                    {{ "%.1f"|format(total_attendance / total_sessions) }}
+                                {% set total_sessions_table = attendance_by_course.values()|sum(attribute='sessions') %}
+                                {% set total_attendance_table = attendance_by_course.values()|sum(attribute='attendance') %}
+                                {% if total_sessions_table > 0 %}
+                                    {{ "%.1f"|format(total_attendance_table / total_sessions_table) }}
                                 {% else %}
                                     0.0
                                 {% endif %}
@@ -99,7 +99,7 @@
                         <div class="col-md-3">
                             <div class="card border-left-info mb-3">
                                 <div class="card-body">
-                                    <h5 class="card-title">{{ db.session.query(Course).count() }}</h5>
+                                    <h5 class="card-title">{{ total_courses }}</h5>
                                     <p class="card-text text-muted">Total Courses</p>
                                 </div>
                             </div>
@@ -107,7 +107,7 @@
                         <div class="col-md-3">
                             <div class="card border-left-success mb-3">
                                 <div class="card-body">
-                                    <h5 class="card-title">{{ db.session.query(Session).count() }}</h5>
+                                    <h5 class="card-title">{{ total_sessions }}</h5>
                                     <p class="card-text text-muted">Total Sessions</p>
                                 </div>
                             </div>
@@ -115,7 +115,7 @@
                         <div class="col-md-3">
                             <div class="card border-left-warning mb-3">
                                 <div class="card-body">
-                                    <h5 class="card-title">{{ db.session.query(Student).count() }}</h5>
+                                    <h5 class="card-title">{{ total_students }}</h5>
                                     <p class="card-text text-muted">Total Students</p>
                                 </div>
                             </div>
@@ -123,7 +123,7 @@
                         <div class="col-md-3">
                             <div class="card border-left-primary mb-3">
                                 <div class="card-body">
-                                    <h5 class="card-title">{{ db.session.query(Lecturer).count() }}</h5>
+                                    <h5 class="card-title">{{ total_lecturers }}</h5>
                                     <p class="card-text text-muted">Total Lecturers</p>
                                 </div>
                             </div>
